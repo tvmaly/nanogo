@@ -1,0 +1,19 @@
+CLAUDE.md
+TODO.md
+PLAN.md
+ACCEPTANCE_TESTS_PLAN.md
+.DS_Store
+.claude/
+
+# C extensions
+*.so
+
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
