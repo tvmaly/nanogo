@@ -179,7 +179,7 @@ nanogo uses `anthropic/claude-haiku-4-5` by default via OpenRouter:
 | 30-minute deep dive | ~$0.015 |
 | A full week of daily sessions | ~$0.10 |
 
-For comparison: AlphaSchool costs roughly $150–$200/month. nanogo's AI costs for equivalent usage run under $2/month.
+For comparison: AlphaSchool costs roughly $2500-$5000/month. nanogo's AI costs for equivalent usage run under $2/month.
 
 ---
 
