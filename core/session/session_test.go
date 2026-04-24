@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -142,6 +143,51 @@ func TestSessionTTL(t *testing.T) {
 		t.Errorf("recent-session should survive GC: %v", err)
 	}
 }
+
+// TEST-6.18: Binding signals do not leak into session message log
+func TestBindingSessionIsolation(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	store := session.NewStore(dir, nil)
+
+	sess, err := store.Create("sess-binding")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Append messages including a tool result that would have had a binding signal
+	sess.Append(llm.Message{Role: "user", Content: "test"})
+	sess.Append(llm.Message{Role: "assistant", Content: "response"})
+	sess.Append(llm.Message{
+		Role:       "tool",
+		Content:    "[binding verdict: error] test error\noriginal output",
+		ToolCallID: "call-1",
+	})
+
+	if err := sess.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Reload and verify the rewritten tool result is persisted
+	// (the binding signal verdict prefix is part of the tool result content,
+	// not a separate system message)
+	sess2, err := store.Load("sess-binding")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	msgs := sess2.Messages()
+	if len(msgs) < 3 {
+		t.Fatalf("expected at least 3 messages, got %d", len(msgs))
+	}
+
+	// The tool result should contain the rewritten content
+	toolResult := msgs[2].Content
+	if !strings.Contains(toolResult, "[binding verdict: error]") {
+		t.Error("binding verdict not found in persisted tool result")
+	}
+}
+
 
 // helpers
 

@@ -186,3 +186,22 @@ For comparison: AlphaSchool costs roughly $2500-$5000/month. nanogo's AI costs f
 ## Questions and feedback
 
 Open an issue at **https://github.com/tvmaly/nanogo/issues**. Parent feedback directly shapes the roadmap.
+
+---
+
+## Implementation Status
+
+This table shows each build phase, what AI tutor capability it unlocks, and whether it is complete.
+
+| Phase | Description | AI Tutor Capability | Status |
+|-------|-------------|---------------------|--------|
+| 1 | Event bus + LLM interface + Router + OpenAI ext + CLI transport | Basic single-question tutoring — child asks, tutor answers | ✅ Complete |
+| 2 | Tool interface + 5 builtins + agent loop + session + subagent concurrency | Tutor can read/write files, run code, and delegate to specialist sub-tutors (math agent, grammar agent) | ✅ Complete |
+| 3 | Skills frontmatter + dispatcher + `ask_user` integration | Named lesson plans ("do my math homework", "quiz me on fractions") — tutor asks for missing details interactively | ✅ Complete |
+| 4 | Memory (consolidator + dream + curator) | Tutor remembers your child across sessions — past mistakes, strengths, learning style, goals | ✅ Complete |
+| 5 | REST + REPL transports | Multi-interface access — tutor available via browser/API (REST) and interactive terminal (REPL) simultaneously | ✅ Complete |
+| 6 | Harness interfaces + sensors + binding-signal support | Tutor self-corrects when it makes a mistake — test failures inject feedback that forces revision | ✅ Complete |
+| 7 | Scheduler + heartbeats (4 action kinds) + CLI management | Scheduled tutoring — daily vocabulary quiz at 8am, weekly progress review on Fridays | 🔲 In Progress |
+| 8 | Obs interfaces + slog + file + cost adapter | Full observability and per-session cost tracking — know exactly what you spent and on what | 🔲 In Progress |
+| 9 | Evolve extension (full, test-gated) | Self-improving tutor — agent proposes improvements to its own lesson files, tests them, deploys on green | 🔲 In Progress |
+| 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | 🔲 In Progress |

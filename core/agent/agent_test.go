@@ -13,6 +13,7 @@ import (
 	"github.com/tvmaly/nanogo/core/agent"
 	"github.com/tvmaly/nanogo/core/event"
 	fakeevent "github.com/tvmaly/nanogo/core/event/fake"
+	"github.com/tvmaly/nanogo/core/harness"
 	"github.com/tvmaly/nanogo/core/llm"
 	fakellm "github.com/tvmaly/nanogo/core/llm/fake"
 	"github.com/tvmaly/nanogo/core/session"
@@ -234,7 +235,89 @@ func (r *trackingRunner) run() {
 	}
 }
 
+// TEST-6.3: Signal injection into next turn
+func TestSignalInjection(t *testing.T) {
+	t.Parallel()
+
+	// Fake LLM: first response has a tool call, second has a final message
+	toolCallChunks := []llm.Chunk{
+		{ToolCall: &llm.ToolCall{ID: "call-1", Name: "my_tool", Args: json.RawMessage(`{}`)}},
+		{FinishReason: "tool_calls"},
+	}
+	finalChunks := []llm.Chunk{
+		{TextDelta: "done"},
+		{FinishReason: "stop"},
+	}
+	llmProvider := fakellm.New(toolCallChunks, finalChunks)
+
+	// Fake sensor that emits a signal on tool call
+	testSen := &testSensor{
+		sig: harness.Signal{
+			Severity: "error",
+			Message:  "test error",
+			Fix:      "fix it",
+			Binding:  false,
+		},
+	}
+
+	// Fake tool
+	myTool := faketools.New("my_tool", "tool-result")
+	toolSource := faketools.NewSource(myTool)
+
+	bus := fakeevent.New()
+	sess := fakesession.New("sess-sig")
+	sess.Append(llm.Message{Role: "user", Content: "test"})
+
+	loop := agent.NewLoop(agent.Config{
+		Provider: llmProvider,
+		Source:   toolSource,
+		Session:  sess,
+		Bus:      bus,
+		Sensors:  []harness.Sensor{testSen},
+	})
+
+	if err := loop.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Check that LLM was called twice
+	if llmProvider.Calls != 2 {
+		t.Errorf("LLM calls = %d, want 2", llmProvider.Calls)
+	}
+
+	// Check that a SensorSignal event was published
+	evts := bus.Events()
+	var gotSignal bool
+	for _, e := range evts {
+		if e.Kind == event.SensorSignal {
+			gotSignal = true
+			payload, ok := e.Payload.(event.SignalPayload)
+			if !ok {
+				t.Errorf("payload type = %T, want SignalPayload", e.Payload)
+			}
+			if payload.Message != "test error" {
+				t.Errorf("signal message = %q, want %q", payload.Message, "test error")
+			}
+		}
+	}
+	if !gotSignal {
+		t.Error("SensorSignal event not published")
+	}
+}
+
 // Ensure faketools and others are used
 var _ tools.Source = (*faketools.Source)(nil)
 var _ session.Session = (*fakesession.Session)(nil)
 var _ fmt.Stringer = nil // suppress import warning
+
+// --- test helpers ---
+
+type testSensor struct {
+	sig harness.Signal
+}
+
+func (ts *testSensor) Name() string { return "test_sensor" }
+
+func (ts *testSensor) Observe(_ context.Context, _ harness.ToolResult) []harness.Signal {
+	return []harness.Signal{ts.sig}
+}

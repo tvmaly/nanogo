@@ -151,3 +151,44 @@ func TestBus_KindFiltering(t *testing.T) {
 		t.Fatal("timed out")
 	}
 }
+
+// TEST-6.19: SensorSignal payload carries Binding flag
+func TestSensorSignalPayloadBinding(t *testing.T) {
+	t.Parallel()
+	bus := event.NewBus()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := bus.Subscribe(ctx, event.SensorSignal)
+
+	// Publish a signal with Binding=true
+	bindingSignal := event.Event{
+		Kind:    event.SensorSignal,
+		Session: "s1",
+		Payload: event.SignalPayload{
+			SensorName: "test_sensor",
+			Severity:   "error",
+			Message:    "binding error",
+			Fix:        "fix it",
+			Binding:    true,
+			ToolName:   "test_tool",
+		},
+	}
+	bus.Publish(bindingSignal)
+
+	select {
+	case got := <-ch:
+		payload, ok := got.Payload.(event.SignalPayload)
+		if !ok {
+			t.Fatalf("payload type = %T, want SignalPayload", got.Payload)
+		}
+		if !payload.Binding {
+			t.Error("Binding flag not preserved in payload")
+		}
+		if payload.SensorName != "test_sensor" {
+			t.Errorf("SensorName = %q, want test_sensor", payload.SensorName)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for signal")
+	}
+}

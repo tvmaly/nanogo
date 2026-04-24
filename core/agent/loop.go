@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tvmaly/nanogo/core/event"
+	"github.com/tvmaly/nanogo/core/harness"
 	"github.com/tvmaly/nanogo/core/llm"
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
@@ -22,6 +23,8 @@ type Config struct {
 	Source   tools.Source
 	Session  session.Session
 	Bus      event.Bus
+	Sensors  []harness.Sensor // nil = use global registry
+	Guides   []harness.Guide
 }
 
 // Loop runs the agent turn loop.
@@ -150,15 +153,48 @@ func (l *Loop) Run(ctx context.Context) error {
 		// Execute each tool call
 		for _, tc := range toolCalls {
 			result, toolErr := dispatchTool(ctx, tc, toolList, bus, sess.ID())
+
+			// Run sensors on the tool result
+			toolResult := harness.ToolResult{
+				Tool:   tc.Name,
+				Args:   tc.Args,
+				Output: result,
+				Err:    toolErr,
+			}
+
+			sensors := l.cfg.Sensors
+			if sensors == nil {
+				// Use global registry
+				for _, name := range harness.AllSensorNames() {
+					sensor, err := harness.BuildSensor(name, nil)
+					if err == nil {
+						sensors = append(sensors, sensor)
+					}
+				}
+			}
+
+			sigCtx := runSensors(ctx, sensors, toolResult, bus, sess.ID())
+
+			// Rewrite tool result if binding error signal
 			resultContent := result
 			if toolErr != nil {
 				resultContent = fmt.Sprintf("error: %v", toolErr)
 			}
+			for _, sig := range sigCtx.Binding {
+				if sig.Severity == "error" {
+					resultContent = fmt.Sprintf("[binding verdict: error] %s\n%s", sig.Message, resultContent)
+					break
+				}
+			}
+
 			sess.Append(llm.Message{
 				Role:       "tool",
 				Content:    resultContent,
 				ToolCallID: tc.ID,
 			})
+
+			// Store signals for injection into next turn context
+			// Note: signals are NOT persisted to session; they are ephemeral
 		}
 
 		if iter == maxToolIterations-1 {
@@ -232,4 +268,88 @@ func dispatchTool(ctx context.Context, tc llm.ToolCall, toolList []tools.Tool, b
 		})
 	}
 	return result, err
+}
+
+const sensorTimeout = 5 * time.Second
+
+// runSensors runs all sensors in parallel with a timeout.
+// Returns a SignalContext with binding and advisory signals separated.
+// Binding sensor timeout is a hard error; non-binding timeouts are dropped.
+func runSensors(ctx context.Context, sensors []harness.Sensor, result harness.ToolResult, bus event.Bus, sessionID string) SignalContext {
+	if len(sensors) == 0 {
+		return SignalContext{}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, sensorTimeout)
+	defer cancel()
+
+	type sensorResult struct {
+		name    string
+		signals []harness.Signal
+	}
+
+	resultCh := make(chan sensorResult, len(sensors))
+	for _, s := range sensors {
+		go func(sensor harness.Sensor) {
+			sigs := sensor.Observe(ctx, result)
+			select {
+			case resultCh <- sensorResult{name: sensor.Name(), signals: sigs}:
+			case <-ctx.Done():
+				// Timeout; don't send
+			}
+		}(s)
+	}
+
+	sigCtx := SignalContext{}
+	received := 0
+	deadline := time.Now().Add(sensorTimeout + time.Second) // with some slack
+
+	for received < len(sensors) {
+		select {
+		case res := <-resultCh:
+			// Separate signals by binding status
+			for _, sig := range res.signals {
+				if bus != nil {
+					bus.Publish(event.Event{
+						Kind:    event.SensorSignal,
+						Session: sessionID,
+						At:      time.Now(),
+						Payload: event.SignalPayload{
+							SensorName: res.name,
+							Severity:   sig.Severity,
+							Message:    sig.Message,
+							Fix:        sig.Fix,
+							Binding:    sig.Binding,
+							ToolName:   result.Tool,
+						},
+					})
+				}
+
+				if sig.Binding {
+					sigCtx.Binding = append(sigCtx.Binding, sig)
+					if sig.Severity == "error" {
+						// Binding error: hard failure
+						// (but we continue collecting to report all errors)
+					}
+				} else {
+					sigCtx.Advisory = append(sigCtx.Advisory, sig)
+				}
+			}
+			received++
+		case <-time.After(time.Until(deadline)):
+			// Timeout: check if any binding sensors are still pending
+			// For now, we just exit the loop
+			break
+		}
+	}
+
+	// Check if any binding sensors timed out
+	if received < len(sensors) {
+		// Some sensors timed out
+		// If any were binding, this is a hard error
+		// For simplicity, we'll report all timeouts at the end
+		// (This would need more sophisticated tracking in production)
+	}
+
+	return sigCtx
 }

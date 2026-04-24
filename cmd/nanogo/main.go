@@ -19,11 +19,13 @@ import (
 	"github.com/tvmaly/nanogo/core/transport"
 	clitransport "github.com/tvmaly/nanogo/ext/transport/cli"
 
-	// Register the openai provider via init()
+	// Register extensions via init()
 	_ "github.com/tvmaly/nanogo/ext/llm/openai"
+	_ "github.com/tvmaly/nanogo/ext/transport/repl"
+	_ "github.com/tvmaly/nanogo/ext/transport/rest"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 func main() {
 	prompt := flag.String("p", "", "Prompt to send (single-shot mode)")

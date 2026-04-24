@@ -37,6 +37,10 @@ type TurnCompletedPayload struct {
 	Text, Model, Source, Skill, SubagentOf string
 	InputTokens, OutputTokens, CachedInputTokens int
 }
+type SignalPayload struct {
+	SensorName, Severity, Message, Fix, ToolName string
+	Binding bool
+}
 
 const bufSize = 256
 
