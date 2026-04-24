@@ -12,7 +12,9 @@ import (
 	"github.com/tvmaly/nanogo/core/agent"
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
+	"github.com/tvmaly/nanogo/core/memory"
 	"github.com/tvmaly/nanogo/core/session"
+	"github.com/tvmaly/nanogo/core/skills"
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/core/transport"
 	clitransport "github.com/tvmaly/nanogo/ext/transport/cli"
@@ -21,13 +23,24 @@ import (
 	_ "github.com/tvmaly/nanogo/ext/llm/openai"
 )
 
-const version = "0.2.0"
+const version = "0.4.0"
 
 func main() {
 	prompt := flag.String("p", "", "Prompt to send (single-shot mode)")
 	configPath := flag.String("config", "", "Path to config JSON file")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	skillsDir := flag.String("skills", defaultSkillsDir(), "Directory containing skill .md files")
+	workspaceDir := flag.String("workspace", defaultWorkspaceDir(), "Workspace directory for memory files")
 	flag.Parse()
+
+	// Handle 'skill' subcommand before other flags.
+	if flag.NArg() > 0 && flag.Arg(0) == "skill" {
+		if err := runSkillCmd(flag.Args()[1:], *skillsDir); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *showVersion {
 		fmt.Println(version)
@@ -49,9 +62,10 @@ func main() {
 	bus := event.NewBus()
 	store := session.NewStore(os.TempDir(), nil)
 
+	memStore, _ := memory.NewStore(*workspaceDir)
+
 	if *prompt != "" {
-		// Single-shot mode: run one turn and exit
-		if err := runSingleShot(context.Background(), provider, store, bus, *prompt); err != nil {
+		if err := runSingleShot(context.Background(), provider, store, bus, memStore, *prompt); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -65,11 +79,19 @@ func main() {
 	}
 }
 
-func runSingleShot(ctx context.Context, provider llm.Provider, store session.Store, bus event.Bus, prompt string) error {
+func runSingleShot(ctx context.Context, provider llm.Provider, store session.Store, bus event.Bus, memStore *memory.Store, prompt string) error {
 	sess, err := store.Create("single-shot")
 	if err != nil {
 		return err
 	}
+
+	// Inject MEMORY.md as system context if present.
+	if memStore != nil {
+		if memContent, _ := memStore.ReadFile("MEMORY.md"); memContent != "" {
+			sess.Append(llm.Message{Role: "system", Content: "## Long-term memory\n" + memContent})
+		}
+	}
+
 	sess.Append(llm.Message{Role: "user", Content: prompt})
 
 	// Subscribe to events to print output
@@ -105,7 +127,22 @@ func runSingleShot(ctx context.Context, provider llm.Provider, store session.Sto
 			return fmt.Errorf("%v", evt.Payload)
 		}
 	}
-	return <-done
+	if err := <-done; err != nil {
+		return err
+	}
+
+	// Persist conversation to history.jsonl and run a dream cycle.
+	if memStore != nil {
+		for _, msg := range sess.Messages() {
+			if msg.Role == "system" {
+				continue
+			}
+			_ = memStore.AppendHistory(memory.HistoryEntry{Role: msg.Role, Content: msg.Content})
+		}
+		dreamer := memory.NewDream(memStore, provider)
+		_ = dreamer.Dream(ctx)
+	}
+	return nil
 }
 
 // runREPL starts an interactive read-eval-print loop.
@@ -233,3 +270,164 @@ func (*replApp) TriggerSkill(_ context.Context, _ string, _ map[string]any) erro
 
 // Keep cli transport import used
 var _ = clitransport.New
+
+func defaultSkillsDir() string {
+	home, _ := os.UserHomeDir()
+	return home + "/.nanogo/skills"
+}
+
+func defaultWorkspaceDir() string {
+	home, _ := os.UserHomeDir()
+	return home + "/.nanogo/workspace"
+}
+
+// runSkillCmd handles: skill list [--all] | skill run <name> [--key=val ...]
+func runSkillCmd(args []string, skillsDir string) error {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: nanogo skill <list|run> [options]")
+		return fmt.Errorf("missing subcommand")
+	}
+	switch args[0] {
+	case "list":
+		return skillList(args[1:], skillsDir)
+	case "run":
+		return skillRun(args[1:], skillsDir)
+	default:
+		return fmt.Errorf("unknown skill subcommand %q", args[0])
+	}
+}
+
+func skillList(args []string, skillsDir string) error {
+	fs := flag.NewFlagSet("skill list", flag.ContinueOnError)
+	all := fs.Bool("all", false, "Include subagent skills")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	sks, err := skills.Discover(skillsDir, nil)
+	if err != nil {
+		return fmt.Errorf("skill list: %w", err)
+	}
+	loader := skills.NewLoader(sks)
+
+	list := loader.UserFacing()
+	if *all {
+		list = loader.All()
+	}
+	for _, sk := range list {
+		label := ""
+		if sk.Kind == "subagent" {
+			label = " [subagent]"
+		}
+		fmt.Printf("%-30s %s%s\n", sk.Name, sk.Description, label)
+	}
+	return nil
+}
+
+func skillRun(args []string, skillsDir string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("skill run requires a skill name")
+	}
+	name := args[0]
+	rest := args[1:]
+
+	// Parse --key=val flags as skill args.
+	skillArgs := map[string]any{}
+	for _, a := range rest {
+		a = strings.TrimPrefix(a, "--")
+		parts := strings.SplitN(a, "=", 2)
+		if len(parts) == 2 {
+			skillArgs[parts[0]] = parts[1]
+		}
+	}
+
+	sks, err := skills.Discover(skillsDir, nil)
+	if err != nil {
+		return fmt.Errorf("skill run: %w", err)
+	}
+	loader := skills.NewLoader(sks)
+
+	cfg, err := loadConfig("")
+	if err != nil {
+		return err
+	}
+	provider, err := buildProvider(cfg)
+	if err != nil {
+		return err
+	}
+
+	bus := event.NewBus()
+	store := session.NewStore(os.TempDir(), nil)
+	runner := &cliSkillRunner{provider: provider, store: store, bus: bus}
+	d := skills.NewDispatcher(loader, runner)
+
+	return d.Fire(context.Background(), skills.Trigger{
+		Skill:  name,
+		Source: skills.SourceCLI,
+		Args:   skillArgs,
+	})
+}
+
+// cliSkillRunner implements skills.AgentRunner using the agent loop.
+type cliSkillRunner struct {
+	provider llm.Provider
+	store    session.Store
+	bus      event.Bus
+}
+
+func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts) (string, error) {
+	sess, err := r.store.Create("skill-" + opts.SkillName)
+	if err != nil {
+		return "", err
+	}
+
+	if opts.SystemNote != "" {
+		sess.Append(llm.Message{Role: "system", Content: opts.SystemNote})
+	}
+	sess.Append(llm.Message{Role: "user", Content: opts.UserMsg})
+
+	coord := tools.NewAskUserCoordinator(r.bus, sess.ID())
+	src := tools.NewBuiltinSource(r.bus, coord, nil)
+
+	loop := agent.NewLoop(agent.Config{
+		Provider: r.provider,
+		Source:   src,
+		Session:  sess,
+		Bus:      r.bus,
+	})
+
+	evtCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	tokens := r.bus.Subscribe(evtCtx, event.TokenDelta, event.TurnCompleted, event.Error, event.AskUser)
+
+	done := make(chan error, 1)
+	go func() { done <- loop.Run(ctx) }()
+
+	sc := bufio.NewScanner(os.Stdin)
+	var text strings.Builder
+	for evt := range tokens {
+		switch evt.Kind {
+		case event.TokenDelta:
+			if s, ok := evt.Payload.(string); ok {
+				text.WriteString(s)
+				fmt.Print(s)
+			}
+		case event.TurnCompleted:
+			cancel()
+			fmt.Println()
+		case event.Error:
+			cancel()
+			return "", fmt.Errorf("%v", evt.Payload)
+		case event.AskUser:
+			if p, ok := evt.Payload.(tools.AskUserPayload); ok {
+				fmt.Printf("\n%s\n> ", p.Question)
+				if sc.Scan() {
+					coord.Resume(p.TurnID, strings.TrimSpace(sc.Text()))
+				} else {
+					coord.Resume(p.TurnID, "")
+				}
+			}
+		}
+	}
+	return text.String(), <-done
+}

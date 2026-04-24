@@ -60,13 +60,15 @@ func NewBus() Bus { return &bus{} }
 
 func (b *bus) Publish(e Event) {
 	b.mu.Lock()
-	active := b.subs[:0]
+	var pruned []*sub
 	for _, s := range b.subs {
 		if s.ctx.Err() == nil {
-			active = append(active, s)
+			pruned = append(pruned, s)
 		}
 	}
-	b.subs = active
+	b.subs = pruned
+	active := make([]*sub, len(pruned))
+	copy(active, pruned)
 	b.mu.Unlock()
 	for _, s := range active {
 		if _, ok := s.kinds[e.Kind]; !ok {

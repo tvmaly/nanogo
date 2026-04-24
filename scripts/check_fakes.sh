@@ -12,6 +12,7 @@ REQUIRED=(
   "core/tools"
   "core/session"
   "core/agent"
+  "core/memory"
 )
 
 for pkg in "${REQUIRED[@]}"; do

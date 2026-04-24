@@ -17,6 +17,20 @@ func New(responses ...[]llm.Chunk) *Provider {
 	return &Provider{Responses: responses}
 }
 
+// FuncProvider calls a custom function for each Chat call.
+type FuncProvider struct {
+	Fn func(ctx context.Context, req llm.Request) (<-chan llm.Chunk, error)
+}
+
+// NewFunc creates a Provider backed by an arbitrary function.
+func NewFunc(fn func(ctx context.Context, req llm.Request) (<-chan llm.Chunk, error)) *FuncProvider {
+	return &FuncProvider{Fn: fn}
+}
+
+func (p *FuncProvider) Chat(ctx context.Context, req llm.Request) (<-chan llm.Chunk, error) {
+	return p.Fn(ctx, req)
+}
+
 func (p *Provider) Chat(_ context.Context, _ llm.Request) (<-chan llm.Chunk, error) {
 	idx := p.Calls
 	p.Calls++
