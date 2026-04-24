@@ -205,3 +205,74 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 8 | Obs interfaces + slog + file + cost adapter | Full observability and per-session cost tracking — know exactly what you spent and on what | 🔲 In Progress |
 | 9 | Evolve extension (full, test-gated) | Self-improving tutor — agent proposes improvements to its own lesson files, tests them, deploys on green | 🔲 In Progress |
 | 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | 🔲 In Progress |
+| 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | 🔲 Planned |
+
+---
+
+## Quick Start Guide
+
+Use this section if you want the shortest path from clone to a working local build and the current acceptance test suite.
+
+### 1. Install prerequisites
+
+You need:
+- Go 1.22 or newer
+- Git
+- An OpenRouter API key for live LLM tests or manual runs
+
+Verify the basics:
+
+```bash
+go version
+git --version
+```
+
+### 2. Clone the repository
+
+```bash
+git clone https://github.com/tvmaly/nanogo.git
+cd nanogo
+```
+
+### 3. Build the binary
+
+```bash
+go build -o nanogo ./cmd/nanogo
+```
+
+### 4. Set your API key
+
+Mac / Linux:
+
+```bash
+export OPENROUTER_API_KEY=your-key-here
+```
+
+Windows Command Prompt:
+
+```bat
+set OPENROUTER_API_KEY=your-key-here
+```
+
+### 5. Run a first prompt
+
+```bash
+./nanogo -p "Reply with exactly: OK"
+```
+
+If your setup is working, the response should begin with `OK`.
+
+### 6. Run the automated acceptance gates
+
+```bash
+go test -race ./...
+scripts/check_imports.sh
+scripts/loc_budget.sh
+scripts/check_fakes.sh
+```
+
+If you also want the coverage gate used from Phase 4 onward:
+
+```bash
+go test -coverprofile=cover.out ./core/agent/... ./core/memory/... ./core/tools/...
+go tool cover -func=cover.out | tail -1
