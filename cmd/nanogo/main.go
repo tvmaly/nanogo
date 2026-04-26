@@ -21,11 +21,12 @@ import (
 
 	// Register extensions via init()
 	_ "github.com/tvmaly/nanogo/ext/llm/openai"
+	_ "github.com/tvmaly/nanogo/ext/scheduler/stdlib"
 	_ "github.com/tvmaly/nanogo/ext/transport/repl"
 	_ "github.com/tvmaly/nanogo/ext/transport/rest"
 )
 
-const version = "0.5.0"
+const version = "0.7.0"
 
 func main() {
 	prompt := flag.String("p", "", "Prompt to send (single-shot mode)")
@@ -35,13 +36,22 @@ func main() {
 	workspaceDir := flag.String("workspace", defaultWorkspaceDir(), "Workspace directory for memory files")
 	flag.Parse()
 
-	// Handle 'skill' subcommand before other flags.
-	if flag.NArg() > 0 && flag.Arg(0) == "skill" {
-		if err := runSkillCmd(flag.Args()[1:], *skillsDir); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+	// Handle subcommands before other flags.
+	if flag.NArg() > 0 {
+		switch flag.Arg(0) {
+		case "skill":
+			if err := runSkillCmd(flag.Args()[1:], *skillsDir); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "heartbeat":
+			if err := runHeartbeatCmd(flag.Args()[1:]); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
-		return
 	}
 
 	if *showVersion {

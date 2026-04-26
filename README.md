@@ -169,6 +169,30 @@ Everything is stored as plain text files in `~/.nanogo/workspace/` on your own m
 
 ---
 
+## How nanogo evolves to fit your child
+
+Phases 12–14 introduce a self-improving education loop that no static tutoring app can match. Here is what that means in plain language:
+
+### For parents
+
+**Turn a rough idea into a ready-to-use lesson.** Write a few sentences about what you want your child to learn — "I want Emma to understand fractions using cooking recipes" — and the system builds a complete, leveled lesson bundle: introduction, worked examples, practice questions, a rubric, and a parent summary. You review and approve before anything reaches your child.
+
+**Lessons improve over time based on your child's actual results.** Every session generates a signal — did your child master the concept, get frustrated, breeze through, or stall on a specific step? The system archives those outcomes and, over multiple sessions, shifts toward lesson variants and teaching approaches that work best for that specific child. You can see exactly which variants are running and why.
+
+**No two children get the same tutor.** A child who learns visually by analogy gets different explanations than one who prefers step-by-step worked examples. The system tracks what works per child and applies it automatically.
+
+**You stay in control.** Every generated lesson requires parent approval before it is used. You can inspect, edit, or reject any variant. The archive is plain text files on your machine — readable and auditable at any time.
+
+### For teachers and homeschool educators
+
+**Rapidly prototype differentiated instruction.** Write a single rough prompt per topic and let the factory generate multiple pathways: a visual/analogical path, a step-by-step procedural path, a challenge path for advanced students, and a remediation path for students who struggle. Each pathway is a plain markdown file you can edit directly.
+
+**Data-driven lesson refinement without a data science background.** Mastery scores, retention signals, and engagement data accumulate automatically. The system surfaces which pathways produce the best outcomes per student profile so you can spend your time teaching, not analyzing spreadsheets.
+
+**Reusable skill libraries.** Every lesson produced by the factory becomes a reusable skill file. Build a library of proven, child-tested lessons over a semester and share them with other families or colleagues — they are plain text and require no special tools to read or run.
+
+---
+
 ## Cost estimate
 
 nanogo uses `anthropic/claude-haiku-4-5` by default via OpenRouter:
@@ -201,11 +225,14 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 4 | Memory (consolidator + dream + curator) | Tutor remembers your child across sessions — past mistakes, strengths, learning style, goals | ✅ Complete |
 | 5 | REST + REPL transports | Multi-interface access — tutor available via browser/API (REST) and interactive terminal (REPL) simultaneously | ✅ Complete |
 | 6 | Harness interfaces + sensors + binding-signal support | Tutor self-corrects when it makes a mistake — test failures inject feedback that forces revision | ✅ Complete |
-| 7 | Scheduler + heartbeats (4 action kinds) + CLI management | Scheduled tutoring — daily vocabulary quiz at 8am, weekly progress review on Fridays | 🔲 In Progress |
+| 7 | Scheduler + heartbeats (4 action kinds) + CLI management | Scheduled tutoring — daily vocabulary quiz at 8am, weekly progress review on Fridays | ✅ Complete |
 | 8 | Obs interfaces + slog + file + cost adapter | Full observability and per-session cost tracking — know exactly what you spent and on what | 🔲 In Progress |
 | 9 | Evolve extension (full, test-gated) | Self-improving tutor — agent proposes improvements to its own lesson files, tests them, deploys on green | 🔲 In Progress |
 | 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | 🔲 In Progress |
 | 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | 🔲 Planned |
+| 12 | Adaptive experiment engine: artifacts, outcomes, archive, islands, scoring | System learns which lesson variants actually work — tracks mastery gain, engagement, and retention per child | 🔲 Planned |
+| 13 | Adaptive lesson factory: rough parent markdown → polished child-specific lesson bundles | Parents write a rough idea; the system generates complete, leveled lessons tailored to their child's style | 🔲 Planned |
+| 14 | Adaptive tutor runtime: live policy selection, mastery scoring, remediation, evolve loop | Tutor adapts its teaching style in real time — hints, pacing, difficulty, and encouragement evolve per child | 🔲 Planned |
 
 ---
 

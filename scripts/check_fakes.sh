@@ -14,6 +14,8 @@ REQUIRED=(
   "core/agent"
   "core/memory"
   "core/harness"
+  "core/scheduler"
+  "core/heartbeat"
 )
 
 for pkg in "${REQUIRED[@]}"; do
