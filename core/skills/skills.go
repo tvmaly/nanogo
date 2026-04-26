@@ -114,6 +114,9 @@ func strSlice(v any) []string {
 // Discover scans dir for .md files with frontmatter, returning all valid skills.
 func Discover(dir string, validRoutes []string) ([]*Skill, error) {
 	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
