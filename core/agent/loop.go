@@ -65,8 +65,13 @@ func (l *Loop) Run(ctx context.Context) error {
 	}
 
 	var text string
+	var pendingSignals SignalContext
 	for iter := 0; iter < maxToolIterations; iter++ {
 		msgs := sess.Messages()
+		if len(pendingSignals.Binding) > 0 || len(pendingSignals.Advisory) > 0 {
+			msgs = InjectSignalsIntoMessages(msgs, pendingSignals)
+			pendingSignals = SignalContext{}
+		}
 		req := buildRequest(msgs, toolList)
 
 		ch, err := provider.Chat(ctx, req)
@@ -193,8 +198,16 @@ func (l *Loop) Run(ctx context.Context) error {
 				ToolCallID: tc.ID,
 			})
 
-			// Store signals for injection into next turn context
-			// Note: signals are NOT persisted to session; they are ephemeral
+			// Accumulate signals; they are injected before the next LLM call.
+			pendingSignals.Binding = append(pendingSignals.Binding, sigCtx.Binding...)
+			pendingSignals.Advisory = append(pendingSignals.Advisory, sigCtx.Advisory...)
+
+			// Binding error: hard failure — halt turn and surface to transport.
+			for _, sig := range sigCtx.Binding {
+				if sig.Severity == "error" {
+					return l.fail(bus, sess, fmt.Errorf("binding sensor error: %s", sig.Message))
+				}
+			}
 		}
 
 		if iter == maxToolIterations-1 {

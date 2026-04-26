@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -302,6 +303,264 @@ func TestSignalInjection(t *testing.T) {
 	}
 	if !gotSignal {
 		t.Error("SensorSignal event not published")
+	}
+}
+
+// TestSignalInjectedIntoNextRequest verifies that advisory/binding signals produced
+// by a sensor after a tool call are actually present in the subsequent LLM request.
+func TestSignalInjectedIntoNextRequest(t *testing.T) {
+	t.Parallel()
+
+	toolCallChunks := []llm.Chunk{
+		{ToolCall: &llm.ToolCall{ID: "c1", Name: "my_tool", Args: json.RawMessage(`{}`)}},
+		{FinishReason: "tool_calls"},
+	}
+	finalChunks := []llm.Chunk{
+		{TextDelta: "done"},
+		{FinishReason: "stop"},
+	}
+
+	var secondReq llm.Request
+	callCount := 0
+	llmProvider := fakellm.NewFunc(func(_ context.Context, req llm.Request) (<-chan llm.Chunk, error) {
+		callCount++
+		if callCount == 2 {
+			secondReq = req
+		}
+		chunks := finalChunks
+		if callCount == 1 {
+			chunks = toolCallChunks
+		}
+		ch := make(chan llm.Chunk, len(chunks)+1)
+		for _, c := range chunks {
+			ch <- c
+		}
+		close(ch)
+		return ch, nil
+	})
+
+	sensor := &testSensor{sig: harness.Signal{
+		Severity: "warn",
+		Message:  "advisory-signal-sentinel",
+		Binding:  false,
+	}}
+
+	myTool := faketools.New("my_tool", "tool-result")
+	bus := fakeevent.New()
+	sess := fakesession.New("sess-inject")
+	sess.Append(llm.Message{Role: "user", Content: "test"})
+
+	loop := agent.NewLoop(agent.Config{
+		Provider: llmProvider,
+		Source:   faketools.NewSource(myTool),
+		Session:  sess,
+		Bus:      bus,
+		Sensors:  []harness.Sensor{sensor},
+	})
+
+	if err := loop.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if callCount != 2 {
+		t.Fatalf("LLM calls = %d, want 2", callCount)
+	}
+
+	// The second LLM request must contain the advisory signal message.
+	found := false
+	for _, msg := range secondReq.Messages {
+		if strings.Contains(msg.Content, "advisory-signal-sentinel") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("advisory signal not injected into second LLM request messages")
+	}
+}
+
+// TestLoopContextKeysPassedThrough verifies that CtxKeySource and CtxKeySkill
+// set on the context are visible to the LLM provider (needed for router dispatch).
+func TestLoopContextKeysPassedThrough(t *testing.T) {
+	t.Parallel()
+
+	var gotSource, gotSkill string
+	var gotSubagent bool
+
+	llmProvider := fakellm.NewFunc(func(ctx context.Context, req llm.Request) (<-chan llm.Chunk, error) {
+		gotSource, _ = ctx.Value(llm.CtxKeySource).(string)
+		gotSkill, _ = ctx.Value(llm.CtxKeySkill).(string)
+		gotSubagent, _ = ctx.Value(llm.CtxKeySubagent).(bool)
+		ch := make(chan llm.Chunk, 2)
+		ch <- llm.Chunk{TextDelta: "ok"}
+		ch <- llm.Chunk{FinishReason: "stop"}
+		close(ch)
+		return ch, nil
+	})
+
+	bus := fakeevent.New()
+	sess := fakesession.New("sess-ctx")
+	sess.Append(llm.Message{Role: "user", Content: "test"})
+
+	ctx := context.WithValue(context.Background(), llm.CtxKeySource, "heartbeat")
+	ctx = context.WithValue(ctx, llm.CtxKeySkill, "my-skill")
+	ctx = context.WithValue(ctx, llm.CtxKeySubagent, true)
+
+	loop := agent.NewLoop(agent.Config{
+		Provider: llmProvider,
+		Source:   faketools.NewSource(),
+		Session:  sess,
+		Bus:      bus,
+	})
+
+	if err := loop.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if gotSource != "heartbeat" {
+		t.Errorf("CtxKeySource = %q, want %q", gotSource, "heartbeat")
+	}
+	if gotSkill != "my-skill" {
+		t.Errorf("CtxKeySkill = %q, want %q", gotSkill, "my-skill")
+	}
+	if !gotSubagent {
+		t.Error("CtxKeySubagent not passed through")
+	}
+}
+
+// TestSubagentRunner_RealExecution verifies that SubagentRunner creates an isolated
+// session, runs the agent loop, and returns the final text.
+func TestSubagentRunner_RealExecution(t *testing.T) {
+	t.Parallel()
+
+	finalChunks := []llm.Chunk{
+		{TextDelta: "subagent-result"},
+		{FinishReason: "stop"},
+	}
+	provider := fakellm.New(finalChunks)
+	bus := fakeevent.New()
+
+	dir := t.TempDir()
+	// Create a real session store backed by temp dir.
+	// We use the session package's store here via the fake session; pass store directly.
+	runner := agent.NewSubagentRunner(agent.SubagentRunnerConfig{
+		Provider: provider,
+		Source:   faketools.NewSource(),
+		Bus:      bus,
+		Semaphore: agent.NewSubagentSemaphore(4),
+	})
+
+	result, err := runner.RunSubagent(context.Background(), tools.SubagentOpts{
+		ParentSession: "parent",
+		Goal:          "do something",
+	})
+	if err != nil {
+		t.Fatalf("RunSubagent: %v", err)
+	}
+	if result != "subagent-result" {
+		t.Errorf("result = %q, want %q", result, "subagent-result")
+	}
+	_ = dir
+}
+
+// TestSubagentRunner_ToolsAllowlist verifies that tools are filtered by the allowlist.
+func TestSubagentRunner_ToolsAllowlist(t *testing.T) {
+	t.Parallel()
+
+	var seenTools []string
+	provider := fakellm.NewFunc(func(_ context.Context, req llm.Request) (<-chan llm.Chunk, error) {
+		seenTools = nil
+		for _, ts := range req.Tools {
+			var schema struct {
+				Function struct{ Name string } `json:"function"`
+			}
+			if err := json.Unmarshal(ts, &schema); err == nil {
+				seenTools = append(seenTools, schema.Function.Name)
+			}
+		}
+		ch := make(chan llm.Chunk, 2)
+		ch <- llm.Chunk{TextDelta: "done"}
+		ch <- llm.Chunk{FinishReason: "stop"}
+		close(ch)
+		return ch, nil
+	})
+	bus := fakeevent.New()
+
+	runner := agent.NewSubagentRunner(agent.SubagentRunnerConfig{
+		Provider:  provider,
+		Source:    faketools.NewSource(faketools.New("read_file", ""), faketools.New("bash", "")),
+		Bus:       bus,
+		Semaphore: agent.NewSubagentSemaphore(4),
+	})
+
+	_, err := runner.RunSubagent(context.Background(), tools.SubagentOpts{
+		ParentSession: "parent",
+		Goal:          "task",
+		Tools:         []string{"read_file"},
+	})
+	if err != nil {
+		t.Fatalf("RunSubagent: %v", err)
+	}
+
+	for _, name := range seenTools {
+		if name != "read_file" {
+			t.Errorf("unexpected tool %q in subagent", name)
+		}
+	}
+}
+
+// TestSubagentRunner_SemaphoreGates verifies the semaphore caps concurrency.
+func TestSubagentRunner_SemaphoreGates(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu      sync.Mutex
+		maxSeen int
+		current int
+	)
+	provider := fakellm.NewFunc(func(_ context.Context, _ llm.Request) (<-chan llm.Chunk, error) {
+		mu.Lock()
+		current++
+		if current > maxSeen {
+			maxSeen = current
+		}
+		mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+		mu.Lock()
+		current--
+		mu.Unlock()
+		ch := make(chan llm.Chunk, 2)
+		ch <- llm.Chunk{TextDelta: "ok"}
+		ch <- llm.Chunk{FinishReason: "stop"}
+		close(ch)
+		return ch, nil
+	})
+	bus := fakeevent.New()
+
+	runner := agent.NewSubagentRunner(agent.SubagentRunnerConfig{
+		Provider:  provider,
+		Source:    faketools.NewSource(),
+		Bus:       bus,
+		Semaphore: agent.NewSubagentSemaphore(2),
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runner.RunSubagent(context.Background(), tools.SubagentOpts{
+				ParentSession: "p",
+				Goal:          "task",
+			})
+		}()
+	}
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if maxSeen > 2 {
+		t.Errorf("max concurrent subagents = %d, want <= 2", maxSeen)
 	}
 }
 

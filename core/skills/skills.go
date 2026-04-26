@@ -196,9 +196,7 @@ func (l *Loader) Lookup(name string) (*Skill, bool) { return l.byName[name], l.b
 func (l *Loader) UserFacing() []*Skill {
 	var out []*Skill
 	for _, s := range l.skills {
-		if s.Kind != "subagent" {
-			out = append(out, s)
-		}
+		if s.Kind != "subagent" { out = append(out, s) }
 	}
 	return out
 }
@@ -218,9 +216,7 @@ func (d *dispatcher) Fire(ctx context.Context, t Trigger) error {
 		return fmt.Errorf("skills: unknown skill %q", t.Skill)
 	}
 	args := t.Args
-	if args == nil {
-		args = map[string]any{}
-	}
+	if args == nil { args = map[string]any{} }
 	var missing []string
 	for _, a := range sk.Args {
 		if _, ok := args[a]; !ok {

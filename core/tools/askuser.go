@@ -7,76 +7,69 @@ import (
 	"sync"
 
 	"github.com/tvmaly/nanogo/core/event"
+	"github.com/tvmaly/nanogo/core/session"
 )
 
 // AskUserPayload is the payload of an AskUser bus event.
-type AskUserPayload struct {
-	TurnID   string
-	Question string
-}
+type AskUserPayload struct{ TurnID, Question string }
 
 // AskUserCoord manages the ask_user blocking/resume cycle for a session.
 type AskUserCoord interface {
-	// Ask publishes an AskUser event and blocks until Resume is called with the matching turnID.
 	Ask(ctx context.Context, sessionID, question string) (string, error)
-	// Resume delivers an answer to a pending Ask call identified by turnID.
 	Resume(turnID, answer string)
 }
 
-// askUserCoordinator is the default AskUserCoord implementation.
 type askUserCoordinator struct {
 	bus     event.Bus
-	session string
-
+	sess    session.Session
 	mu      sync.Mutex
-	pending map[string]chan string
 	nextID  int
+	pending map[string]chan string
 }
 
-// NewAskUserCoordinator creates an AskUserCoord backed by the given bus.
-func NewAskUserCoordinator(bus event.Bus, sessionID string) *askUserCoordinator {
-	return &askUserCoordinator{
-		bus:     bus,
-		session: sessionID,
-		pending: make(map[string]chan string),
-	}
+// NewAskUserCoordinator creates a coordinator without session integration.
+func NewAskUserCoordinator(bus event.Bus, _ string) *askUserCoordinator {
+	return &askUserCoordinator{bus: bus, pending: make(map[string]chan string)}
+}
+
+// NewAskUserCoordinatorWithSession creates a coordinator that checkpoints
+// the session to StatusWaiting, enabling pause/resume across restarts.
+func NewAskUserCoordinatorWithSession(bus event.Bus, sess session.Session) *askUserCoordinator {
+	return &askUserCoordinator{bus: bus, sess: sess, pending: make(map[string]chan string)}
 }
 
 func (c *askUserCoordinator) Ask(ctx context.Context, sessionID, question string) (string, error) {
 	c.mu.Lock()
 	c.nextID++
 	turnID := fmt.Sprintf("ask-%d", c.nextID)
-	ch := make(chan string, 1)
-	c.pending[turnID] = ch
 	c.mu.Unlock()
 
-	c.bus.Publish(event.Event{
-		Kind:    event.AskUser,
-		Session: sessionID,
-		Payload: AskUserPayload{TurnID: turnID, Question: question},
-	})
-
+	var ch <-chan string
+	if c.sess != nil {
+		ch = c.sess.SetWaiting(turnID)
+	} else {
+		lch := make(chan string, 1)
+		c.mu.Lock(); c.pending[turnID] = lch; c.mu.Unlock()
+		ch = lch
+	}
+	c.bus.Publish(event.Event{Kind: event.AskUser, Session: sessionID,
+		Payload: AskUserPayload{TurnID: turnID, Question: question}})
 	select {
 	case answer := <-ch:
 		return answer, nil
 	case <-ctx.Done():
-		c.mu.Lock()
-		delete(c.pending, turnID)
-		c.mu.Unlock()
+		if c.sess == nil { c.mu.Lock(); delete(c.pending, turnID); c.mu.Unlock() }
 		return "", ctx.Err()
 	}
 }
 
 func (c *askUserCoordinator) Resume(turnID, answer string) {
+	if c.sess != nil { c.sess.Resume(turnID, answer); return }
 	c.mu.Lock()
 	ch, ok := c.pending[turnID]
-	if ok {
-		delete(c.pending, turnID)
-	}
+	if ok { delete(c.pending, turnID) }
 	c.mu.Unlock()
-	if ok {
-		ch <- answer
-	}
+	if ok { ch <- answer }
 }
 
 // --- ask_user tool ---

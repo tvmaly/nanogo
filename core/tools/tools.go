@@ -46,6 +46,25 @@ type SubagentOpts struct {
 	Tools         []string // allowlist; nil = inherit parent
 }
 
+type filteredSource struct{ inner Source; allow map[string]struct{} }
+
+// NewFilteredSource returns a Source that only exposes tools in allowlist.
+func NewFilteredSource(inner Source, allowlist []string) Source {
+	m := make(map[string]struct{}, len(allowlist))
+	for _, n := range allowlist { m[n] = struct{}{} }
+	return &filteredSource{inner, m}
+}
+
+func (f *filteredSource) Tools(ctx context.Context, turn TurnInfo) ([]Tool, error) {
+	all, err := f.inner.Tools(ctx, turn)
+	if err != nil { return nil, err }
+	out := all[:0:0]
+	for _, t := range all {
+		if _, ok := f.allow[t.Name()]; ok { out = append(out, t) }
+	}
+	return out, nil
+}
+
 var (
 	mu       sync.RWMutex
 	registry = map[string]SourceFactory{}

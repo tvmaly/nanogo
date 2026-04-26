@@ -8,8 +8,21 @@ import (
 
 	"github.com/tvmaly/nanogo/core/event"
 	eventfake "github.com/tvmaly/nanogo/core/event/fake"
+	"github.com/tvmaly/nanogo/core/transport"
 	"github.com/tvmaly/nanogo/ext/transport/cli"
 )
+
+// TestCLI_RegisteredViaInit verifies that importing the cli package registers
+// the "cli" driver in the transport registry (invariant #2).
+func TestCLI_RegisteredViaInit(t *testing.T) {
+	t.Parallel()
+	for _, name := range transport.Registered() {
+		if name == "cli" {
+			return
+		}
+	}
+	t.Fatal("cli transport not registered via init(); invariant #2 violated")
+}
 
 // fakeApp implements transport.App for tests.
 type fakeApp struct {

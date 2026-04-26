@@ -16,12 +16,11 @@ import (
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/skills"
 	"github.com/tvmaly/nanogo/core/tools"
-	"github.com/tvmaly/nanogo/core/transport"
-	clitransport "github.com/tvmaly/nanogo/ext/transport/cli"
-
 	// Register extensions via init()
 	_ "github.com/tvmaly/nanogo/ext/llm/openai"
+	_ "github.com/tvmaly/nanogo/ext/llm/router"
 	_ "github.com/tvmaly/nanogo/ext/scheduler/stdlib"
+	_ "github.com/tvmaly/nanogo/ext/transport/cli"
 	_ "github.com/tvmaly/nanogo/ext/transport/repl"
 	_ "github.com/tvmaly/nanogo/ext/transport/rest"
 )
@@ -233,55 +232,51 @@ type config struct {
 	} `json:"llm"`
 }
 
+// defaultConfigPath is the path tried when no --config flag is given.
+// Override in tests to avoid touching the real home directory.
+var defaultConfigPath = func() string {
+	home, _ := os.UserHomeDir()
+	return home + "/.nanogo/config.json"
+}()
+
 func loadConfig(path string) (*config, error) {
 	if path == "" {
-		apiKey := os.Getenv("OPENROUTER_API_KEY")
-		model := os.Getenv("NANOGO_MODEL")
-		if model == "" {
-			model = "anthropic/claude-haiku-4-5"
-		}
-		baseURL := os.Getenv("NANOGO_BASE_URL")
-		if baseURL == "" {
-			baseURL = "https://openrouter.ai/api/v1"
-		}
-		raw, _ := json.Marshal(map[string]string{
-			"base_url":    baseURL,
-			"api_key_env": "OPENROUTER_API_KEY",
-			"api_key":     apiKey,
-			"model":       model,
-		})
-		cfg := &config{}
-		cfg.LLM.Driver = "openai"
-		cfg.LLM.Config = raw
-		return cfg, nil
+		path = defaultConfigPath
 	}
 	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		defer f.Close()
+		var cfg config
+		if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+			return nil, err
+		}
+		return &cfg, nil
 	}
-	defer f.Close()
-	var cfg config
-	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
-		return nil, err
+	// File not found (or unreadable): synthesise from env vars.
+	apiKey := os.Getenv("OPENROUTER_API_KEY")
+	model := os.Getenv("NANOGO_MODEL")
+	if model == "" {
+		model = "anthropic/claude-haiku-4-5"
 	}
-	return &cfg, nil
+	baseURL := os.Getenv("NANOGO_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://openrouter.ai/api/v1"
+	}
+	raw, _ := json.Marshal(map[string]string{
+		"base_url":    baseURL,
+		"api_key_env": "OPENROUTER_API_KEY",
+		"api_key":     apiKey,
+		"model":       model,
+	})
+	cfg := &config{}
+	cfg.LLM.Driver = "openai"
+	cfg.LLM.Config = raw
+	return cfg, nil
 }
 
 func buildProvider(cfg *config) (llm.Provider, error) {
 	return llm.Build(cfg.LLM.Driver, cfg.LLM.Config)
 }
-
-// ensure simpleApp satisfies transport.App (no longer using it but keep transport import alive)
-var _ transport.App = (*replApp)(nil)
-
-type replApp struct{}
-
-func (*replApp) Submit(_ context.Context, _, _ string) error             { return nil }
-func (*replApp) Resume(_ context.Context, _, _ string) error             { return nil }
-func (*replApp) TriggerSkill(_ context.Context, _ string, _ map[string]any) error { return nil }
-
-// Keep cli transport import used
-var _ = clitransport.New
 
 func defaultSkillsDir() string {
 	home, _ := os.UserHomeDir()
@@ -388,6 +383,9 @@ type cliSkillRunner struct {
 }
 
 func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts) (string, error) {
+	// Set routing context keys so the LLM router can dispatch by skill name.
+	ctx = context.WithValue(ctx, llm.CtxKeySkill, opts.SkillName)
+
 	sess, err := r.store.Create("skill-" + opts.SkillName)
 	if err != nil {
 		return "", err
@@ -399,7 +397,12 @@ func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts)
 	sess.Append(llm.Message{Role: "user", Content: opts.UserMsg})
 
 	coord := tools.NewAskUserCoordinator(r.bus, sess.ID())
-	src := tools.NewBuiltinSource(r.bus, coord, nil)
+	var src tools.Source
+	if len(opts.Tools) > 0 {
+		src = tools.NewFilteredSource(tools.NewBuiltinSource(r.bus, coord, nil), opts.Tools)
+	} else {
+		src = tools.NewBuiltinSource(r.bus, coord, nil)
+	}
 
 	loop := agent.NewLoop(agent.Config{
 		Provider: r.provider,

@@ -4,13 +4,27 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/transport"
 )
+
+func init() {
+	transport.Register("cli", func(cfg json.RawMessage, bus event.Bus, app transport.App) (transport.Transport, error) {
+		var c Config
+		if len(cfg) > 0 {
+			if err := json.Unmarshal(cfg, &c); err != nil {
+				return nil, err
+			}
+		}
+		return New(c, bus, os.Stdout), nil
+	})
+}
 
 // Config holds CLI transport configuration.
 type Config struct {

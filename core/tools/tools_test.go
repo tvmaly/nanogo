@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tvmaly/nanogo/core/event"
+	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
 )
 
@@ -321,6 +322,58 @@ func TestSpawnRole(t *testing.T) {
 	}))
 	if err == nil {
 		t.Fatal("expected error for nonexistent role")
+	}
+}
+
+// TestAskUserSetsSessionWaiting verifies that Ask sets the session to StatusWaiting
+// so that pause/resume survives a process restart.
+func TestAskUserSetsSessionWaiting(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	store := session.NewStore(dir, nil)
+	sess, err := store.Create("waiting-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bus := event.NewBus()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	coord := tools.NewAskUserCoordinatorWithSession(bus, sess)
+	sub := bus.Subscribe(ctx, event.AskUser)
+
+	var (
+		wg     sync.WaitGroup
+		result string
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result, _ = coord.Ask(ctx, "sess", "Question?")
+	}()
+
+	// Wait for AskUser event
+	select {
+	case evt := <-sub:
+		payload := evt.Payload.(tools.AskUserPayload)
+		// After Ask, session must be in waiting state
+		if sess.GetStatus() != session.StatusWaiting {
+			t.Errorf("session status = %v, want StatusWaiting", sess.GetStatus())
+		}
+		// Resume via session.Resume (the transport path)
+		sess.Resume(payload.TurnID, "Answer")
+	case <-ctx.Done():
+		t.Fatal("timeout")
+	}
+
+	wg.Wait()
+	if result != "Answer" {
+		t.Errorf("result = %q, want %q", result, "Answer")
+	}
+	if sess.GetStatus() != session.StatusActive {
+		t.Errorf("session status after resume = %v, want StatusActive", sess.GetStatus())
 	}
 }
 
