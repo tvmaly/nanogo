@@ -70,6 +70,8 @@ func heartbeatAdd(args []string) error {
 	fs := flag.NewFlagSet("heartbeat add", flag.ContinueOnError)
 	id := fs.String("id", "", "Heartbeat ID (required)")
 	cron := fs.String("cron", "", "Cron spec or 'every Nm' interval (required)")
+	action := fs.String("action", "", "Action kind: wake, skill, trigger, or tool")
+	prompt := fs.String("prompt", "", "Prompt to send (wake action)")
 	skill := fs.String("skill", "", "Skill to fire (skill action)")
 	wake := fs.String("wake", "", "Prompt to send (wake action)")
 	tool := fs.String("tool", "", "Tool to call (tool action)")
@@ -83,6 +85,14 @@ func heartbeatAdd(args []string) error {
 	}
 	hb := heartbeat.Heartbeat{ID: *id, Cron: *cron}
 	switch {
+	case *action == string(heartbeat.ActionWake):
+		hb.Action = heartbeat.Action{Kind: heartbeat.ActionWake, Prompt: firstNonEmpty(*prompt, *wake)}
+	case *action == string(heartbeat.ActionSkill):
+		hb.Action = heartbeat.Action{Kind: heartbeat.ActionSkill, Skill: *skill}
+	case *action == string(heartbeat.ActionTool):
+		hb.Action = heartbeat.Action{Kind: heartbeat.ActionTool, Tool: *tool}
+	case *action == string(heartbeat.ActionTrigger):
+		hb.Action = heartbeat.Action{Kind: heartbeat.ActionTrigger, When: *when, Skill: *triggerSkill}
 	case *skill != "":
 		hb.Action = heartbeat.Action{Kind: heartbeat.ActionSkill, Skill: *skill}
 	case *wake != "":

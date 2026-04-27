@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -56,6 +57,28 @@ func TestAuthWrong(t *testing.T) {
 	tr.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %d", rec.Code)
+	}
+}
+
+func TestAuthBearerEnv(t *testing.T) {
+	t.Setenv("NANOGO_TEST_TOKEN", "env-secret")
+	bus := event.NewBus()
+	app := &fake.App{Bus: bus}
+	tr := rest.New(rest.Config{Addr: ":0", Auth: rest.AuthConfig{BearerEnv: "NANOGO_TEST_TOKEN"}}, bus, app)
+
+	req := httptest.NewRequest("POST", "/v1/chat", strings.NewReader(`{"session":"s1","message":"hi"}`))
+	req.Header.Set("Authorization", "Bearer env-secret")
+	rec := httptest.NewRecorder()
+	tr.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	os.Unsetenv("NANOGO_TEST_TOKEN")
+	rec = httptest.NewRecorder()
+	tr.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unset env token should require auth, got %d", rec.Code)
 	}
 }
 

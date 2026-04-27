@@ -38,6 +38,7 @@ type Chunk struct {
 
 type Usage struct {
 	InputTokens, OutputTokens, CachedInputTokens int
+	ServerToolUse                                map[string]int
 }
 
 type ToolCall struct {
@@ -73,7 +74,7 @@ func Build(name string, cfg json.RawMessage) (Provider, error) {
 type ctxKey int
 
 const (
-	CtxKeySource   ctxKey = iota
+	CtxKeySource ctxKey = iota
 	CtxKeySkill
 	CtxKeySubagent
 )

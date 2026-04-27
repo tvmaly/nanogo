@@ -43,7 +43,7 @@ check "core/skills"    220
 check "core/session"   180
 check "core/heartbeat" 120
 check "core/runtime"   120
-check "core/event"      95
+check "core/event"      96
 check "core/harness"   120
 check "core/llm"       130
 check "core/config"    100

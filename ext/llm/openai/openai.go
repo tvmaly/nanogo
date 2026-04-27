@@ -17,10 +17,11 @@ import (
 
 // Config holds the configuration for the OpenAI-compatible provider.
 type Config struct {
-	BaseURL   string `json:"base_url"`
-	APIKey    string `json:"api_key"`
-	APIKeyEnv string `json:"api_key_env"` // env var name; used by factory
-	Model     string `json:"model"`
+	BaseURL     string           `json:"base_url"`
+	APIKey      string           `json:"api_key"`
+	APIKeyEnv   string           `json:"api_key_env"` // env var name; used by factory
+	Model       string           `json:"model"`
+	ServerTools []llm.ToolSchema `json:"server_tools"`
 }
 
 // Provider is an OpenAI-compatible streaming LLM client.
@@ -50,10 +51,11 @@ func init() {
 // --- wire types ---
 
 type chatRequest struct {
-	Model    string       `json:"model"`
-	Messages []wireMsg    `json:"messages"`
-	Tools    []llm.ToolSchema `json:"tools,omitempty"`
-	Stream   bool         `json:"stream"`
+	Model         string           `json:"model"`
+	Messages      []wireMsg        `json:"messages"`
+	Tools         []llm.ToolSchema `json:"tools,omitempty"`
+	Stream        bool             `json:"stream"`
+	StreamOptions map[string]bool  `json:"stream_options,omitempty"`
 }
 
 type wireMsg struct {
@@ -95,8 +97,12 @@ type wireToolCall struct {
 }
 
 type wireUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	PromptTokens        int            `json:"prompt_tokens"`
+	CompletionTokens    int            `json:"completion_tokens"`
+	InputTokens         int            `json:"input_tokens"`
+	OutputTokens        int            `json:"output_tokens"`
+	CachedInputTokens   int            `json:"cached_input_tokens"`
+	ServerToolUse       map[string]int `json:"server_tool_use"`
 	PromptTokensDetails *struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
@@ -125,11 +131,14 @@ func (p *Provider) Chat(ctx context.Context, req llm.Request) (<-chan llm.Chunk,
 		msgs[i] = wm
 	}
 
+	tools := append([]llm.ToolSchema(nil), req.Tools...)
+	tools = append(tools, p.cfg.ServerTools...)
 	body, err := json.Marshal(chatRequest{
-		Model:    model,
-		Messages: msgs,
-		Tools:    req.Tools,
-		Stream:   true,
+		Model:         model,
+		Messages:      msgs,
+		Tools:         tools,
+		Stream:        true,
+		StreamOptions: map[string]bool{"include_usage": true},
 	})
 	if err != nil {
 		return nil, err
@@ -192,6 +201,9 @@ func (p *Provider) stream(_ context.Context, r io.Reader, ch chan<- llm.Chunk) {
 
 		if sc.Usage != nil {
 			lastUsage = sc.Usage
+			if flushed {
+				ch <- llm.Chunk{Usage: convertUsage(lastUsage)}
+			}
 		}
 
 		if len(sc.Choices) == 0 {
@@ -227,17 +239,28 @@ func (p *Provider) stream(_ context.Context, r io.Reader, ch chan<- llm.Chunk) {
 			}
 			c := llm.Chunk{FinishReason: *choice.FinishReason}
 			if lastUsage != nil {
-				cached := 0
-				if lastUsage.PromptTokensDetails != nil {
-					cached = lastUsage.PromptTokensDetails.CachedTokens
-				}
-				c.Usage = &llm.Usage{
-					InputTokens:       lastUsage.PromptTokens,
-					OutputTokens:      lastUsage.CompletionTokens,
-					CachedInputTokens: cached,
-				}
+				c.Usage = convertUsage(lastUsage)
 			}
 			ch <- c
 		}
 	}
+}
+
+func convertUsage(u *wireUsage) *llm.Usage {
+	cached := 0
+	if u.PromptTokensDetails != nil {
+		cached = u.PromptTokensDetails.CachedTokens
+	}
+	if u.CachedInputTokens != 0 {
+		cached = u.CachedInputTokens
+	}
+	input := u.PromptTokens
+	if input == 0 {
+		input = u.InputTokens
+	}
+	output := u.CompletionTokens
+	if output == 0 {
+		output = u.OutputTokens
+	}
+	return &llm.Usage{InputTokens: input, OutputTokens: output, CachedInputTokens: cached, ServerToolUse: u.ServerToolUse}
 }

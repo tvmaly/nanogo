@@ -34,12 +34,13 @@ type Event struct {
 }
 
 type TurnCompletedPayload struct {
-	Text, Model, Source, Skill, SubagentOf string
+	Text, Model, Source, Skill, SubagentOf       string
 	InputTokens, OutputTokens, CachedInputTokens int
+	ServerToolUse                                map[string]int
 }
 type SignalPayload struct {
 	SensorName, Severity, Message, Fix, ToolName string
-	Binding bool
+	Binding                                      bool
 }
 
 const bufSize = 256

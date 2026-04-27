@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -84,13 +85,16 @@ func (t *Transport) bearer() string {
 	if t.cfg.Auth.Bearer != "" {
 		return t.cfg.Auth.Bearer
 	}
+	if t.cfg.Auth.BearerEnv != "" {
+		return os.Getenv(t.cfg.Auth.BearerEnv)
+	}
 	return ""
 }
 
 func (t *Transport) withAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok := t.bearer()
-		if tok != "" {
+		if tok != "" || t.cfg.Auth.BearerEnv != "" {
 			auth := r.Header.Get("Authorization")
 			if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != tok {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)

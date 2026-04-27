@@ -7,15 +7,23 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tvmaly/nanogo/core/agent"
 	"github.com/tvmaly/nanogo/core/event"
+	"github.com/tvmaly/nanogo/core/heartbeat"
 	"github.com/tvmaly/nanogo/core/llm"
 	"github.com/tvmaly/nanogo/core/memory"
+	"github.com/tvmaly/nanogo/core/obs"
+	"github.com/tvmaly/nanogo/core/scheduler"
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/skills"
 	"github.com/tvmaly/nanogo/core/tools"
+	costobs "github.com/tvmaly/nanogo/ext/obs/cost"
+	fileobs "github.com/tvmaly/nanogo/ext/obs/file"
+	slogobs "github.com/tvmaly/nanogo/ext/obs/slog"
 	// Register extensions via init()
 	_ "github.com/tvmaly/nanogo/ext/llm/openai"
 	_ "github.com/tvmaly/nanogo/ext/llm/router"
@@ -25,7 +33,7 @@ import (
 	_ "github.com/tvmaly/nanogo/ext/transport/rest"
 )
 
-const version = "0.7.0"
+const version = "0.8.0"
 
 func main() {
 	prompt := flag.String("p", "", "Prompt to send (single-shot mode)")
@@ -38,6 +46,12 @@ func main() {
 	// Handle subcommands before other flags.
 	if flag.NArg() > 0 {
 		switch flag.Arg(0) {
+		case "cost":
+			if err := runCostCmd(flag.Args()[1:]); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "skill":
 			if err := runSkillCmd(flag.Args()[1:], *skillsDir); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -72,25 +86,35 @@ func main() {
 
 	bus := event.NewBus()
 	store := session.NewStore(os.TempDir(), nil)
+	cleanup, err := startObs(context.Background(), bus, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "obs error: %v\n", err)
+		os.Exit(1)
+	}
+	defer cleanup()
 
 	memStore, _ := memory.NewStore(*workspaceDir)
+	model := cfg.modelForSource("cli")
 
 	if *prompt != "" {
-		if err := runSingleShot(context.Background(), provider, store, bus, memStore, *prompt); err != nil {
+		if err := runSingleShot(context.Background(), provider, store, bus, memStore, *prompt, model, "cli"); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
 
+	ctx := context.Background()
+	stopHeartbeats, _ := startHeartbeats(ctx, cfg, provider, store, bus, memStore)
+	defer stopHeartbeats()
 	// REPL mode
-	if err := runREPL(context.Background(), provider, store, bus); err != nil {
+	if err := runREPL(ctx, provider, store, bus, model); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func runSingleShot(ctx context.Context, provider llm.Provider, store session.Store, bus event.Bus, memStore *memory.Store, prompt string) error {
+func runSingleShot(ctx context.Context, provider llm.Provider, store session.Store, bus event.Bus, memStore *memory.Store, prompt, model, source string) error {
 	sess, err := store.Create("single-shot")
 	if err != nil {
 		return err
@@ -113,10 +137,12 @@ func runSingleShot(ctx context.Context, provider llm.Provider, store session.Sto
 	coord := tools.NewAskUserCoordinator(bus, sess.ID())
 	src := tools.NewBuiltinSource(bus, coord, nil)
 	loop := agent.NewLoop(agent.Config{
-		Provider: provider,
-		Source:   src,
-		Session:  sess,
-		Bus:      bus,
+		Provider:   provider,
+		Source:     src,
+		Session:    sess,
+		Bus:        bus,
+		Model:      model,
+		SourceName: source,
 	})
 
 	done := make(chan error, 1)
@@ -157,7 +183,7 @@ func runSingleShot(ctx context.Context, provider llm.Provider, store session.Sto
 }
 
 // runREPL starts an interactive read-eval-print loop.
-func runREPL(ctx context.Context, provider llm.Provider, store session.Store, bus event.Bus) error {
+func runREPL(ctx context.Context, provider llm.Provider, store session.Store, bus event.Bus, model string) error {
 	sess, err := store.Create(newID())
 	if err != nil {
 		return err
@@ -187,10 +213,12 @@ func runREPL(ctx context.Context, provider llm.Provider, store session.Store, bu
 
 		sess.Append(llm.Message{Role: "user", Content: line})
 		loop := agent.NewLoop(agent.Config{
-			Provider: provider,
-			Source:   src,
-			Session:  sess,
-			Bus:      bus,
+			Provider:   provider,
+			Source:     src,
+			Session:    sess,
+			Bus:        bus,
+			Model:      model,
+			SourceName: "cli",
 		})
 
 		evtCtx, cancel := context.WithCancel(ctx)
@@ -230,6 +258,15 @@ type config struct {
 		Driver string          `json:"driver"`
 		Config json.RawMessage `json:"config"`
 	} `json:"llm"`
+	Obs []struct {
+		Driver string          `json:"driver"`
+		Config json.RawMessage `json:"config"`
+	} `json:"obs"`
+	Scheduler struct {
+		Driver string          `json:"driver"`
+		Config json.RawMessage `json:"config"`
+	} `json:"scheduler"`
+	Heartbeats []heartbeat.Heartbeat `json:"heartbeats"`
 }
 
 // defaultConfigPath is the path tried when no --config flag is given.
@@ -276,6 +313,178 @@ func loadConfig(path string) (*config, error) {
 
 func buildProvider(cfg *config) (llm.Provider, error) {
 	return llm.Build(cfg.LLM.Driver, cfg.LLM.Config)
+}
+
+func (c *config) modelForSource(source string) string {
+	if c.LLM.Driver != "router" {
+		var m struct {
+			Model string `json:"model"`
+		}
+		_ = json.Unmarshal(c.LLM.Config, &m)
+		return m.Model
+	}
+	var rc struct {
+		Providers map[string]struct {
+			Config json.RawMessage `json:"config"`
+		} `json:"providers"`
+		Rules    []llm.Rule `json:"rules"`
+		Fallback string     `json:"fallback"`
+	}
+	_ = json.Unmarshal(c.LLM.Config, &rc)
+	route := rc.Fallback
+	for _, r := range rc.Rules {
+		if r.When == "source="+source || r.When == "default" {
+			route = r.Route
+			break
+		}
+	}
+	var m struct {
+		Model string `json:"model"`
+	}
+	if p, ok := rc.Providers[route]; ok {
+		_ = json.Unmarshal(p.Config, &m)
+	}
+	return m.Model
+}
+
+func startObs(ctx context.Context, bus event.Bus, cfg *config) (func(), error) {
+	var cancels []context.CancelFunc
+	obs.Reset()
+	for _, entry := range cfg.Obs {
+		switch entry.Driver {
+		case "slog":
+			var c slogobs.Config
+			_ = json.Unmarshal(entry.Config, &c)
+			obs.SetLoggers(slogobs.New(c, os.Stderr))
+		case "file":
+			var c fileobs.Config
+			if err := json.Unmarshal(entry.Config, &c); err != nil {
+				return nil, err
+			}
+			c.Path = expandPath(c.Path)
+			w, err := fileobs.New(c)
+			if err != nil {
+				return nil, err
+			}
+			subCtx, cancel := context.WithCancel(ctx)
+			cancels = append(cancels, func() { cancel(); _ = w.Close() })
+			go recordEvents(subCtx, bus, w.Record)
+		case "cost":
+			var c costobs.Config
+			if err := json.Unmarshal(entry.Config, &c); err != nil {
+				return nil, err
+			}
+			c.OutputPath = expandPath(c.OutputPath)
+			t := costobs.New(c)
+			subCtx, cancel := context.WithCancel(ctx)
+			cancels = append(cancels, cancel)
+			go recordEvents(subCtx, bus, t.Record)
+		}
+	}
+	return func() {
+		time.Sleep(100 * time.Millisecond)
+		for _, c := range cancels {
+			c()
+		}
+	}, nil
+}
+
+func recordEvents(ctx context.Context, bus event.Bus, fn func(context.Context, event.Event) error) {
+	sub := bus.Subscribe(ctx, event.TurnStarted, event.TokenDelta, event.ToolCallStarted, event.ToolCallResult,
+		event.TurnCompleted, event.AskUser, event.MemoryUpdated, event.SkillTriggered, event.SensorSignal,
+		event.HeartbeatFired, event.EvolveProposed, event.EvolveApplied, event.EvolveReverted, event.Error)
+	for e := range sub {
+		_ = fn(ctx, e)
+	}
+}
+
+func startHeartbeats(ctx context.Context, cfg *config, provider llm.Provider, store session.Store, bus event.Bus, memStore *memory.Store) (func(), error) {
+	if len(cfg.Heartbeats) == 0 {
+		return func() {}, nil
+	}
+	driver := cfg.Scheduler.Driver
+	if driver == "" {
+		driver = "stdlib"
+	}
+	sched, err := scheduler.Build(driver, cfg.Scheduler.Config)
+	if err != nil {
+		return func() {}, err
+	}
+	sub := heartbeatSubmitter{provider: provider, store: store, bus: bus, memStore: memStore, model: cfg.modelForSource("heartbeat")}
+	rt := heartbeat.NewRuntime(sched, nil, tools.NewBuiltinSource(bus, nil, nil), sub, bus)
+	for _, hb := range cfg.Heartbeats {
+		_ = rt.Register(ctx, hb)
+	}
+	hbCtx, cancel := context.WithCancel(ctx)
+	_ = sched.Start(hbCtx)
+	return cancel, nil
+}
+
+type heartbeatSubmitter struct {
+	provider llm.Provider
+	store    session.Store
+	bus      event.Bus
+	memStore *memory.Store
+	model    string
+}
+
+func (h heartbeatSubmitter) Submit(ctx context.Context, sessionID, message string) error {
+	return runSingleShot(ctx, h.provider, h.store, h.bus, h.memStore, message, h.model, "heartbeat")
+}
+
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
+func defaultCostPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".nanogo", "cost.jsonl")
+}
+
+func runCostCmd(args []string) error {
+	fs := flag.NewFlagSet("cost", flag.ContinueOnError)
+	since := fs.String("since", "", "Filter duration: 24h, 7d, 30d")
+	by := fs.String("by", "", "Group by model, skill, or source")
+	path := fs.String("path", defaultCostPath(), "Cost JSONL path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	d, err := parseSince(*since)
+	if err != nil {
+		return err
+	}
+	out, err := costobs.Summary(expandPath(*path), *by, d)
+	if err != nil {
+		return err
+	}
+	fmt.Print(out)
+	return nil
+}
+
+func parseSince(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	if strings.HasSuffix(s, "d") {
+		n := strings.TrimSuffix(s, "d")
+		var days int
+		if _, err := fmt.Sscanf(n, "%d", &days); err != nil {
+			return 0, err
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 func defaultSkillsDir() string {
@@ -365,7 +574,7 @@ func skillRun(args []string, skillsDir string) error {
 
 	bus := event.NewBus()
 	store := session.NewStore(os.TempDir(), nil)
-	runner := &cliSkillRunner{provider: provider, store: store, bus: bus}
+	runner := &cliSkillRunner{provider: provider, store: store, bus: bus, model: cfg.modelForSource("cli")}
 	d := skills.NewDispatcher(loader, runner)
 
 	return d.Fire(context.Background(), skills.Trigger{
@@ -380,6 +589,7 @@ type cliSkillRunner struct {
 	provider llm.Provider
 	store    session.Store
 	bus      event.Bus
+	model    string
 }
 
 func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts) (string, error) {
@@ -405,10 +615,13 @@ func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts)
 	}
 
 	loop := agent.NewLoop(agent.Config{
-		Provider: r.provider,
-		Source:   src,
-		Session:  sess,
-		Bus:      r.bus,
+		Provider:   r.provider,
+		Source:     src,
+		Session:    sess,
+		Bus:        r.bus,
+		Model:      firstNonEmpty(opts.Model, r.model),
+		SourceName: "skill",
+		SkillName:  opts.SkillName,
 	})
 
 	evtCtx, cancel := context.WithCancel(ctx)

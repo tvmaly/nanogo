@@ -227,7 +227,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 6 | Harness interfaces + sensors + binding-signal support | Tutor self-corrects when it makes a mistake — test failures inject feedback that forces revision | ✅ Complete |
 | 7 | Scheduler + heartbeats (4 action kinds) + CLI management | Scheduled tutoring — daily vocabulary quiz at 8am, weekly progress review on Fridays | ✅ Complete |
 | — | **Post-phase-7 integration fixes:** CLI transport `init()` registration, router factory in `ext/llm/router/`, signal injection wired, `SubagentRunner` isolated sessions, session-backed `ask_user`, tools allowlist, config loading from `~/.nanogo/config.json` | All runtime-wiring gaps from REVIEW.md closed; Phase 8 prerequisites met | ✅ Complete |
-| 8 | Obs interfaces + slog + file + cost adapter | Full observability and per-session cost tracking — know exactly what you spent and on what | 🔲 In Progress |
+| 8 | Obs interfaces + slog + file + cost adapter | Full observability and per-session cost tracking — know exactly what you spent and on what | ✅ Complete |
 | 9 | Evolve extension (full, test-gated) | Self-improving tutor — agent proposes improvements to its own lesson files, tests them, deploys on green | 🔲 In Progress |
 | 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | 🔲 In Progress |
 | 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | 🔲 Planned |
