@@ -228,8 +228,8 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 7 | Scheduler + heartbeats (4 action kinds) + CLI management | Scheduled tutoring — daily vocabulary quiz at 8am, weekly progress review on Fridays | ✅ Complete |
 | — | **Post-phase-7 integration fixes:** CLI transport `init()` registration, router factory in `ext/llm/router/`, signal injection wired, `SubagentRunner` isolated sessions, session-backed `ask_user`, tools allowlist, config loading from `~/.nanogo/config.json` | All runtime-wiring gaps from REVIEW.md closed; Phase 8 prerequisites met | ✅ Complete |
 | 8 | Obs interfaces + slog + file + cost adapter | Full observability and per-session cost tracking — know exactly what you spent and on what | ✅ Complete |
-| 9 | Evolve extension (full, test-gated) | Self-improving tutor — agent proposes improvements to its own lesson files, tests them, deploys on green | 🔲 In Progress |
-| 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | 🔲 In Progress |
+| 9 | Evolve extension (full, test-gated) | Self-improving tutor — agent proposes improvements to its own lesson files, tests them, deploys on green | ✅ Complete |
+| 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | ✅ Complete |
 | 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | 🔲 Planned |
 | 12 | Adaptive experiment engine: artifacts, outcomes, archive, islands, scoring | System learns which lesson variants actually work — tracks mastery gain, engagement, and retention per child | 🔲 Planned |
 | 13 | Adaptive lesson factory: rough parent markdown → polished child-specific lesson bundles | Parents write a rough idea; the system generates complete, leveled lessons tailored to their child's style | 🔲 Planned |
@@ -304,3 +304,124 @@ If you also want the coverage gate used from Phase 4 onward:
 ```bash
 go test -coverprofile=cover.out ./core/agent/... ./core/memory/... ./core/tools/...
 go tool cover -func=cover.out | tail -1
+```
+
+---
+
+## Running Manual Tests
+
+The manual tests exercise the full stack end-to-end against a real LLM via OpenRouter. They cover one test per completed phase in the order phases were delivered.
+
+### With `make` (recommended)
+
+```bash
+# Build the binary and run all manual tests in phase order:
+make test
+
+# Or run a single test by phase:
+make test-1.9    # TEST-1.9  — real LLM round trip
+make test-2.12   # TEST-2.12 — agent creates and reads a file
+make test-4.9    # TEST-4.9  — memory persists across two sessions
+make test-8.5    # TEST-8.5  — event kinds visible in log
+make test-8.10   # TEST-8.10 — cost tracker records real turns
+make test-9.8    # TEST-9.8  — evolve building blocks (sandbox, path guard, learnings)
+make test-9.9    # TEST-9.9  — self-edit attack rejected by path guard
+```
+
+`make test` will fail immediately if `OPENROUTER_API_KEY` is not set.
+
+### Without `make`
+
+1. **Build the binary:**
+   ```bash
+   go build -o /tmp/nanogo ./cmd/nanogo
+   ```
+
+2. **Set your API key:**
+   ```bash
+   export OPENROUTER_API_KEY=sk-or-v1-...
+   ```
+
+3. **Write a config file** (`/tmp/nanogo-test-config.json`):
+   ```json
+   {
+     "llm": {
+       "driver": "openai",
+       "config": {
+         "base_url": "https://openrouter.ai/api/v1",
+         "api_key_env": "OPENROUTER_API_KEY",
+         "model": "anthropic/claude-haiku-4-5"
+       }
+     },
+     "transports": [{"driver": "cli"}]
+   }
+   ```
+
+4. **Run each test in order:**
+
+   **TEST-1.9 — Real LLM round trip**
+   ```bash
+   /tmp/nanogo --config /tmp/nanogo-test-config.json \
+     --workspace /tmp/nanogo-workspace \
+     --skills testdata/skills \
+     -p "Reply with exactly: OK"
+   # Pass: output contains OK
+   ```
+
+   **TEST-2.12 — Agent performs file edit**
+   ```bash
+   /tmp/nanogo --config /tmp/nanogo-test-config.json \
+     --workspace /tmp/nanogo-workspace \
+     --skills testdata/skills \
+     -p "Create a file /tmp/nanogo-demo.txt containing exactly the word 'hello', then read it back and tell me its contents."
+   cat /tmp/nanogo-demo.txt
+   # Pass: file exists and contains "hello"
+   ```
+
+   **TEST-4.9 — Memory persists across sessions**
+   ```bash
+   /tmp/nanogo --config /tmp/nanogo-test-config.json \
+     --workspace /tmp/nanogo-workspace \
+     --skills testdata/skills \
+     -p "Remember that my favorite programming language is Go."
+
+   /tmp/nanogo --config /tmp/nanogo-test-config.json \
+     --workspace /tmp/nanogo-workspace \
+     --skills testdata/skills \
+     -p "What is my favorite programming language?"
+   # Pass: second response mentions Go
+   ```
+
+   **TEST-8.5 — All event kinds visible**
+   ```bash
+   /tmp/nanogo --config /tmp/nanogo-test-config.json \
+     --workspace /tmp/nanogo-workspace \
+     --skills testdata/skills \
+     -p "Create a file /tmp/nanogo-event-test.txt with content 'y'"
+   jq -r '.kind' /tmp/nanogo-workspace/log.jsonl | sort -u
+   # Pass: includes turn.started, turn.token, tool.started, tool.result, turn.completed
+   ```
+
+   **TEST-8.10 — Cost tracker records real turns**
+   ```bash
+   /tmp/nanogo --config /tmp/nanogo-test-config.json \
+     --workspace /tmp/nanogo-workspace \
+     --skills testdata/skills \
+     -p "Reply with OK"
+   /tmp/nanogo --config /tmp/nanogo-test-config.json \
+     --workspace /tmp/nanogo-workspace \
+     cost
+   # Pass: cost.jsonl exists or cost summary prints
+   ```
+
+   **TEST-9.8 — Evolve building blocks**
+   ```bash
+   go test -v -run "TestSandbox|TestPathGuard|TestLearnings|TestSynthesis" ./ext/evolve/...
+   # Pass: all four tests green
+   ```
+
+   **TEST-9.9 — Self-edit attack rejected**
+   ```bash
+   go test -v -run "TestPathGuard|TestPathGuardLearningsEntry" ./ext/evolve/...
+   # Pass: IsBlocked returns true for core/ and ext/evolve/ paths; rejection logged
+   ```

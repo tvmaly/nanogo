@@ -2,6 +2,9 @@ package openai_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -165,5 +168,266 @@ func TestUsagePopulated(t *testing.T) {
 	}
 	if lastChunk.Usage.CachedInputTokens != 2 {
 		t.Fatalf("CachedInputTokens = %d, want 2", lastChunk.Usage.CachedInputTokens)
+	}
+}
+
+// TEST-10.9 — server tools appended without removing user-defined tools
+func TestOpenAIServerToolsPassthrough(t *testing.T) {
+	t.Parallel()
+	var captured []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+
+	serverTool := json.RawMessage(`{"type":"openrouter:web_search","parameters":{"engine":"auto"}}`)
+	p := openai.New(openai.Config{
+		BaseURL:     srv.URL,
+		APIKey:      "test",
+		Model:       "openai/gpt-5.2",
+		ServerTools: []json.RawMessage{serverTool},
+	})
+
+	userTool := json.RawMessage(`{"type":"function","function":{"name":"my_fn"}}`)
+	ch, err := p.Chat(context.Background(), llm.Request{
+		Stream: true,
+		Tools:  []llm.ToolSchema{userTool},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(captured, &body); err != nil {
+		t.Fatalf("request body not valid JSON: %v", err)
+	}
+
+	tools, _ := body["tools"].([]any)
+	if len(tools) != 2 {
+		t.Fatalf("expected 2 tools in request, got %d", len(tools))
+	}
+
+	foundFunction, foundServerTool := false, false
+	for _, tool := range tools {
+		m, _ := tool.(map[string]any)
+		switch m["type"] {
+		case "function":
+			foundFunction = true
+		case "openrouter:web_search":
+			foundServerTool = true
+		}
+	}
+	if !foundFunction {
+		t.Error("user-defined function tool missing from request")
+	}
+	if !foundServerTool {
+		t.Error("openrouter:web_search server tool missing from request")
+	}
+
+	// model must not include :online
+	model, _ := body["model"].(string)
+	if strings.Contains(model, ":online") {
+		t.Errorf("model must not contain :online, got %q", model)
+	}
+	// no plugins field
+	if _, ok := body["plugins"]; ok {
+		t.Error("request must not contain plugins field")
+	}
+}
+
+// TEST-10.10 — web-search server tool parameters are raw JSON pass-through
+func TestOpenAIWebSearchServerToolParameters(t *testing.T) {
+	t.Parallel()
+	var captured []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+
+	serverTool := json.RawMessage(`{"type":"openrouter:web_search","parameters":{"engine":"auto","max_results":5,"max_total_results":15,"search_context_size":"medium","allowed_domains":["nasa.gov","si.edu"],"excluded_domains":["reddit.com"]}}`)
+	p := openai.New(openai.Config{
+		BaseURL:     srv.URL,
+		APIKey:      "test",
+		Model:       "openai/gpt-5.2",
+		ServerTools: []json.RawMessage{serverTool},
+	})
+
+	ch, err := p.Chat(context.Background(), llm.Request{Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+
+	var body struct {
+		Tools []json.RawMessage `json:"tools"`
+	}
+	if err := json.Unmarshal(captured, &body); err != nil {
+		t.Fatalf("request body not valid JSON: %v", err)
+	}
+	if len(body.Tools) != 1 {
+		t.Fatalf("expected one server tool, got %d", len(body.Tools))
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(body.Tools[0], &got); err != nil {
+		t.Fatalf("server tool not valid JSON: %v", err)
+	}
+	if got["type"] != "openrouter:web_search" {
+		t.Fatalf("type = %v, want openrouter:web_search", got["type"])
+	}
+	params, ok := got["parameters"].(map[string]any)
+	if !ok {
+		t.Fatalf("parameters missing or wrong type: %#v", got["parameters"])
+	}
+	checks := map[string]any{
+		"engine":              "auto",
+		"max_results":         float64(5),
+		"max_total_results":   float64(15),
+		"search_context_size": "medium",
+	}
+	for k, want := range checks {
+		if params[k] != want {
+			t.Fatalf("parameters.%s = %#v, want %#v", k, params[k], want)
+		}
+	}
+	if gotDomains := fmt.Sprint(params["allowed_domains"]); gotDomains != "[nasa.gov si.edu]" {
+		t.Fatalf("allowed_domains = %s", gotDomains)
+	}
+	if gotDomains := fmt.Sprint(params["excluded_domains"]); gotDomains != "[reddit.com]" {
+		t.Fatalf("excluded_domains = %s", gotDomains)
+	}
+}
+
+// TEST-10.13 — general server-tool search remains unrestricted unless configured
+func TestGeneralServerToolSearchUnrestricted(t *testing.T) {
+	t.Parallel()
+	var captured []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+
+	serverTool := json.RawMessage(`{"type":"openrouter:web_search","parameters":{"engine":"auto","max_results":5,"max_total_results":20,"search_context_size":"medium"}}`)
+	p := openai.New(openai.Config{
+		BaseURL:     srv.URL,
+		APIKey:      "test",
+		Model:       "openai/gpt-5.2",
+		ServerTools: []json.RawMessage{serverTool},
+	})
+
+	ch, err := p.Chat(context.Background(), llm.Request{Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+
+	var body struct {
+		Tools []struct {
+			Type       string         `json:"type"`
+			Parameters map[string]any `json:"parameters"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(captured, &body); err != nil {
+		t.Fatalf("request body not valid JSON: %v", err)
+	}
+	if len(body.Tools) != 1 {
+		t.Fatalf("expected one server tool, got %d", len(body.Tools))
+	}
+	params := body.Tools[0].Parameters
+	if _, ok := params["allowed_domains"]; ok {
+		t.Fatalf("allowed_domains must be absent unless configured: %#v", params)
+	}
+	if _, ok := params["excluded_domains"]; ok {
+		t.Fatalf("excluded_domains must be absent unless configured: %#v", params)
+	}
+}
+
+// TEST-10.11 — server_tool_use parsed from usage
+func TestOpenAIServerToolUsage(t *testing.T) {
+	t.Parallel()
+	sse := `data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000,"completion_tokens":500,"prompt_tokens_details":{"cached_tokens":100},"server_tool_use":{"web_search_requests":2}}}
+
+data: [DONE]
+
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(sse))
+	}))
+	defer srv.Close()
+
+	p := openai.New(openai.Config{BaseURL: srv.URL, APIKey: "test", Model: "m"})
+	ch, err := p.Chat(context.Background(), llm.Request{Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last llm.Chunk
+	for c := range ch {
+		if c.Usage != nil {
+			last = c
+		}
+	}
+	if last.Usage == nil {
+		t.Fatal("expected Usage on final chunk")
+	}
+	if last.Usage.InputTokens != 1000 {
+		t.Errorf("InputTokens = %d, want 1000", last.Usage.InputTokens)
+	}
+	if last.Usage.OutputTokens != 500 {
+		t.Errorf("OutputTokens = %d, want 500", last.Usage.OutputTokens)
+	}
+	if last.Usage.CachedInputTokens != 100 {
+		t.Errorf("CachedInputTokens = %d, want 100", last.Usage.CachedInputTokens)
+	}
+	if last.Usage.ServerToolUse["web_search_requests"] != 2 {
+		t.Errorf("web_search_requests = %d, want 2", last.Usage.ServerToolUse["web_search_requests"])
+	}
+}
+
+// TEST-10.12 — deprecated :online and plugins are never emitted
+func TestOpenRouterDeprecatedWebSearchNotUsed(t *testing.T) {
+	t.Parallel()
+	var captured []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+
+	serverTool := json.RawMessage(`{"type":"openrouter:web_search","parameters":{"engine":"auto"}}`)
+	p := openai.New(openai.Config{
+		BaseURL:     srv.URL,
+		APIKey:      "test",
+		Model:       "some/model",
+		ServerTools: []json.RawMessage{serverTool},
+	})
+	ch, err := p.Chat(context.Background(), llm.Request{Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+
+	var body map[string]any
+	json.Unmarshal(captured, &body)
+	model, _ := body["model"].(string)
+	if strings.Contains(model, ":online") {
+		t.Errorf("model must not contain :online, got %q", model)
+	}
+	if _, ok := body["plugins"]; ok {
+		t.Error("plugins field must not be present")
 	}
 }

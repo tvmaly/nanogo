@@ -83,3 +83,41 @@ func readOne(t *testing.T, path string) map[string]any {
 	}
 	return rec
 }
+
+// TEST-10.14 — cost adapter preserves server_tool_use in JSONL output
+func TestCostServerToolUsage(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cost.jsonl")
+	tracker := cost.New(cost.Config{
+		OutputPath: path,
+		Prices:     map[string]cost.Price{"m": {InputPerMTok: 1.0, OutputPerMTok: 5.0}},
+	})
+
+	e := event.Event{
+		Kind: event.TurnCompleted,
+		At:   time.Now(),
+		Payload: event.TurnCompletedPayload{
+			Model:        "m",
+			InputTokens:  100,
+			OutputTokens: 50,
+			Source:       "cli",
+			ServerToolUse: map[string]int{"web_search_requests": 2},
+		},
+	}
+	if err := tracker.Record(context.Background(), e); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	raw, _ := os.ReadFile(path)
+	var rec map[string]any
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	stu, ok := rec["server_tool_use"].(map[string]any)
+	if !ok {
+		t.Fatalf("server_tool_use missing from cost record, got: %v", rec)
+	}
+	if int(stu["web_search_requests"].(float64)) != 2 {
+		t.Errorf("expected web_search_requests=2, got %v", stu["web_search_requests"])
+	}
+}
