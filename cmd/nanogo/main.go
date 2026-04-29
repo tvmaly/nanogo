@@ -31,6 +31,7 @@ import (
 	_ "github.com/tvmaly/nanogo/ext/transport/cli"
 	_ "github.com/tvmaly/nanogo/ext/transport/repl"
 	_ "github.com/tvmaly/nanogo/ext/transport/rest"
+	_ "github.com/tvmaly/nanogo/ext/transport/webui"
 )
 
 const version = "0.8.0"

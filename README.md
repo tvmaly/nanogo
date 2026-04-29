@@ -230,7 +230,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 8 | Obs interfaces + slog + file + cost adapter | Full observability and per-session cost tracking — know exactly what you spent and on what | ✅ Complete |
 | 9 | Evolve extension (full, test-gated) | Self-improving tutor — agent proposes improvements to its own lesson files, tests them, deploys on green | ✅ Complete |
 | 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | ✅ Complete |
-| 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | 🔲 Planned |
+| 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | ✅ Complete |
 | 12 | Adaptive experiment engine: artifacts, outcomes, archive, islands, scoring | System learns which lesson variants actually work — tracks mastery gain, engagement, and retention per child | 🔲 Planned |
 | 13 | Adaptive lesson factory: rough parent markdown → polished child-specific lesson bundles | Parents write a rough idea; the system generates complete, leveled lessons tailored to their child's style | 🔲 Planned |
 | 14 | Adaptive tutor runtime: live policy selection, mastery scoring, remediation, evolve loop | Tutor adapts its teaching style in real time — hints, pacing, difficulty, and encouragement evolve per child | 🔲 Planned |
