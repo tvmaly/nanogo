@@ -1,7 +1,10 @@
 BINARY      := /tmp/nanogo
 CONFIG      := /tmp/nanogo-test-config.json
 CONFIG_OBS  := /tmp/nanogo-test-config-obs.json
-WORKSPACE   := /tmp/nanogo-workspace
+# Manual smoke tests use a fresh workspace by default so stale MEMORY.md
+# content from prior runs cannot steer live OpenRouter responses.
+DEFAULT_WORKSPACE := $(shell mktemp -d /tmp/nanogo-workspace.XXXXXX)
+WORKSPACE   ?= $(DEFAULT_WORKSPACE)
 SKILLS_DIR  := $(CURDIR)/testdata/skills
 
 .PHONY: all build check-env write-config write-config-obs test \
