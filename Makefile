@@ -6,7 +6,7 @@ SKILLS_DIR  := $(CURDIR)/testdata/skills
 
 .PHONY: all build check-env write-config write-config-obs test \
 	test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 \
-	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24
+	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24 test-14.27
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
@@ -189,8 +189,16 @@ test-13.24: build check-env
 		|| (echo "FAIL: assignment queue missing"; exit 1)
 	@echo "PASS: TEST-13.24 complete"
 
+# TEST-14.27 — End-to-end adaptive tutoring workflow
+test-14.27: build check-env
+	@echo ""; echo "=== TEST-14.27: adaptive tutoring workflow ==="
+	@GOCACHE=/tmp/go-cache go test -v -run "TestSessionTurnGradeMasteryRetentionAndRemediation|TestProfileScoringMutationApprovalSummaryToolsAndLessonIntegration|TestDomainEvaluateCompileMutate" ./ext/adaptive/domains/tutorruntime/... \
+		&& echo "PASS: adaptive tutor runtime workflow" \
+		|| (echo "FAIL: adaptive tutor runtime workflow"; exit 1)
+	@echo "PASS: TEST-14.27 complete"
+
 # ── Run all manual tests in phase order ───────────────────────────────────────
 
-test: build check-env test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 test-9.8 test-9.9 test-11.11 test-12.20 test-13.24
+test: build check-env test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 test-9.8 test-9.9 test-11.11 test-12.20 test-13.24 test-14.27
 	@echo ""
 	@echo "=== All manual tests complete ==="

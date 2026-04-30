@@ -30,6 +30,7 @@ import (
 	fileobs "github.com/tvmaly/nanogo/ext/obs/file"
 	slogobs "github.com/tvmaly/nanogo/ext/obs/slog"
 	// Register extensions via init()
+	_ "github.com/tvmaly/nanogo/ext/adaptive/domains/tutorruntime"
 	_ "github.com/tvmaly/nanogo/ext/adaptive/tools"
 	_ "github.com/tvmaly/nanogo/ext/llm/openai"
 	_ "github.com/tvmaly/nanogo/ext/llm/router"
@@ -40,7 +41,7 @@ import (
 	_ "github.com/tvmaly/nanogo/ext/transport/webui"
 )
 
-const version = "0.13.0"
+const version = "0.14.0"
 
 func main() {
 	prompt := flag.String("p", "", "Prompt to send (single-shot mode)")

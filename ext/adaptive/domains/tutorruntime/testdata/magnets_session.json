@@ -1,0 +1,10 @@
+{
+  "child_id": "cross",
+  "lesson_id": "lesson-science-magnets",
+  "subject": "science",
+  "topic": "magnets",
+  "turns": [
+    {"question_id": "q1", "correct": true, "hint_count": 1},
+    {"question_id": "q2", "correct": false, "hint_count": 3}
+  ]
+}

@@ -233,7 +233,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | ✅ Complete |
 | 12 | Adaptive experiment engine: artifacts, outcomes, archive, islands, scoring | System learns which lesson variants actually work — tracks mastery gain, engagement, and retention per child | ✅ Complete |
 | 13 | Adaptive lesson factory: rough parent markdown → polished child-specific lesson bundles | Parents write a rough idea; the system generates complete, leveled lessons tailored to their child's style | ✅ Complete |
-| 14 | Adaptive tutor runtime: live policy selection, mastery scoring, remediation, evolve loop | Tutor adapts its teaching style in real time — hints, pacing, difficulty, and encouragement evolve per child | 🔲 Planned |
+| 14 | Adaptive tutor runtime: live policy selection, mastery scoring, remediation, evolve loop | Tutor adapts its teaching style in real time — hints, pacing, difficulty, and encouragement evolve per child | ✅ Complete |
 
 ---
 
@@ -475,3 +475,29 @@ CLI workflow:
 ```
 
 The domain registers adaptive artifact kinds for lesson bundles, pathways, rubrics, and templates. It also exposes a `lessonfactory` tool source with parse, compile, review, package, assign, parent-review, child-outcome, and template-mutation operations.
+
+## Adaptive Tutor Runtime
+
+Phase 14 adds `ext/adaptive/domains/tutorruntime/`, an extension-only adaptive domain for live tutoring sessions. It selects tutor policies from parent pins and archive outcomes, records turn evidence, grades answers deterministically, updates mastery, schedules retention reviews, recommends remediation, tracks misconceptions through profile approval, mutates policy versions, and writes parent-readable session summaries.
+
+Initial tutor policies live under `ext/adaptive/domains/tutorruntime/policies/`: `socratic-guide`, `worked-example-first`, `hands-on-remediation`, `visual-analogy`, `story-explanation`, `retrieval-practice`, `challenge-mode`, and `gentle-coach`.
+
+Runtime files live under:
+
+```text
+memory/adaptive/tutorruntime/sessions.jsonl
+memory/adaptive/tutorruntime/turns.jsonl
+memory/adaptive/tutorruntime/pending_reviews.jsonl
+memory/adaptive/tutorruntime/strategy_switches.jsonl
+memory/adaptive/tutorruntime/policy_activations.jsonl
+memory/adaptive/artifacts/tutor_policies/
+memory/adaptive/reports/tutorruntime/
+```
+
+Manual smoke:
+
+```bash
+make test-14.27
+```
+
+The `tutorruntime` tool source exposes policy selection, turn recording, answer grading, mastery update, misconception detection, remediation recommendation, review scheduling, and session summary tools.
