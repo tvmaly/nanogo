@@ -1,0 +1,45 @@
+id: lesson-science-magnets
+request_id: request-science-magnets
+title: How magnets work
+subject: science
+topic: magnets
+approval_status: pending
+materials:
+- magnets
+- paper clips
+- paper
+children:
+- child: cross
+pathways:
+- id: cross-default
+  child_id: cross
+  strategy: default
+  file: child_pathways/cross-default.md
+- id: cross-hands-on
+  child_id: cross
+  strategy: hands_on
+  file: child_pathways/cross-hands-on.md
+- id: cross-remediation
+  child_id: cross
+  strategy: remediation
+  file: child_pathways/cross-remediation.md
+levels:
+- id: age-6-7
+  age_band: 6-7
+  file: levels/age-6-7.md
+- id: deeper-dive
+  age_band: 8+
+  file: levels/deeper-dive.md
+assessments:
+- id: quick-check
+  kind: quick_check
+  file: assessment/quick-check.md
+- id: rubric
+  kind: rubric
+  file: assessment/rubric.md
+- id: transfer
+  kind: transfer
+  file: assessment/transfer-questions.md
+- id: retention
+  kind: retention
+  file: assessment/retention-review.md

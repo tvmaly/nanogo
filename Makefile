@@ -6,7 +6,7 @@ SKILLS_DIR  := $(CURDIR)/testdata/skills
 
 .PHONY: all build check-env write-config write-config-obs test \
 	test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 \
-	test-9.8 test-9.9 test-11.11 test-12.20
+	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
@@ -153,8 +153,44 @@ test-12.20: build check-env
 		|| (echo "FAIL: child pattern summary missing"; exit 1)
 	@echo "PASS: TEST-12.20 complete"
 
+# TEST-13.24 — End-to-end lesson factory workflow
+test-13.24: build check-env
+	@echo ""; echo "=== TEST-13.24: lesson factory workflow ==="
+	@rm -rf $(WORKSPACE)/lessons $(WORKSPACE)/inbox/lessons
+	@mkdir -p $(WORKSPACE)/inbox/lessons
+	@printf '%s\n' '---' \
+		'title: How magnets work' \
+		'subject: science' \
+		'topic: magnets' \
+		'children: [cross]' \
+		'rough_age_level: 7' \
+		'goal: Help him understand attraction, repulsion, and magnetic fields' \
+		'materials:' \
+		'  - magnets' \
+		'  - paper clips' \
+		'  - paper' \
+		'preferences:' \
+		'  - make it hands-on' \
+		'---' \
+		'' \
+		'I want a lesson where he plays with magnets and learns why some things stick and some do not.' \
+		> $(WORKSPACE)/inbox/lessons/magnets.md
+	@$(BINARY) --workspace $(WORKSPACE) lessonfactory compile --source $(WORKSPACE)/inbox/lessons/magnets.md
+	@$(BINARY) --workspace $(WORKSPACE) lessonfactory review --lesson latest | grep -qi "quality gates" \
+		&& echo "PASS: review visible" \
+		|| (echo "FAIL: review missing quality gates"; exit 1)
+	@$(BINARY) --workspace $(WORKSPACE) lessonfactory approve --lesson latest
+	@$(BINARY) --workspace $(WORKSPACE) lessonfactory assign --lesson latest --child cross
+	@test -f $(WORKSPACE)/lessons/generated/lesson-science-magnets/parent_guide.md \
+		&& echo "PASS: parent guide written" \
+		|| (echo "FAIL: parent guide missing"; exit 1)
+	@test -f $(WORKSPACE)/lessons/queues/cross.jsonl \
+		&& echo "PASS: child assignment queue written" \
+		|| (echo "FAIL: assignment queue missing"; exit 1)
+	@echo "PASS: TEST-13.24 complete"
+
 # ── Run all manual tests in phase order ───────────────────────────────────────
 
-test: build check-env test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 test-9.8 test-9.9 test-11.11 test-12.20
+test: build check-env test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 test-9.8 test-9.9 test-11.11 test-12.20 test-13.24
 	@echo ""
 	@echo "=== All manual tests complete ==="

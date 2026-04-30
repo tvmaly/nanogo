@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/ext/adaptive"
 	"github.com/tvmaly/nanogo/ext/adaptive/archive"
+	"github.com/tvmaly/nanogo/ext/adaptive/domains/lessonfactory"
 	"github.com/tvmaly/nanogo/ext/adaptive/reports"
 	costobs "github.com/tvmaly/nanogo/ext/obs/cost"
 	fileobs "github.com/tvmaly/nanogo/ext/obs/file"
@@ -38,7 +40,7 @@ import (
 	_ "github.com/tvmaly/nanogo/ext/transport/webui"
 )
 
-const version = "0.12.0"
+const version = "0.13.0"
 
 func main() {
 	prompt := flag.String("p", "", "Prompt to send (single-shot mode)")
@@ -71,6 +73,12 @@ func main() {
 			return
 		case "adaptive":
 			if err := runAdaptiveCmd(flag.Args()[1:], *workspaceDir); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "lessonfactory":
+			if err := runLessonFactoryCmd(flag.Args()[1:], *workspaceDir); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
 			}
@@ -123,6 +131,104 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runLessonFactoryCmd(args []string, workspace string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: nanogo lessonfactory compile|review|approve|assign --lesson <id>")
+	}
+	f := lessonfactory.New(lessonfactory.Config{Root: workspace})
+	switch args[0] {
+	case "compile":
+		fs := flag.NewFlagSet("lessonfactory compile", flag.ContinueOnError)
+		source := fs.String("source", "", "rough lesson markdown path")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *source == "" {
+			return fmt.Errorf("--source is required")
+		}
+		b, err := f.ProcessInboxFile(context.Background(), *source)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("lesson: %s\npath: %s\n", b.ID, filepath.Join(workspace, "lessons", "generated", b.ID))
+		return nil
+	case "review":
+		fs := flag.NewFlagSet("lessonfactory review", flag.ContinueOnError)
+		lesson := fs.String("lesson", "latest", "lesson id or latest")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		id, err := resolveLessonID(workspace, *lesson)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(filepath.Join(workspace, "lessons", "generated", id, "review.md"))
+		if err != nil {
+			return err
+		}
+		fmt.Print(string(data))
+		return nil
+	case "approve":
+		fs := flag.NewFlagSet("lessonfactory approve", flag.ContinueOnError)
+		lesson := fs.String("lesson", "latest", "lesson id or latest")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		id, err := resolveLessonID(workspace, *lesson)
+		if err != nil {
+			return err
+		}
+		if err := f.RecordParentReview(context.Background(), id, lessonfactory.ParentReview{Approved: true, Notes: "approved from CLI"}); err != nil {
+			return err
+		}
+		fmt.Printf("approved: %s\n", id)
+		return nil
+	case "assign":
+		fs := flag.NewFlagSet("lessonfactory assign", flag.ContinueOnError)
+		lesson := fs.String("lesson", "latest", "lesson id or latest")
+		child := fs.String("child", "", "child id")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *child == "" {
+			return fmt.Errorf("--child is required")
+		}
+		id, err := resolveLessonID(workspace, *lesson)
+		if err != nil {
+			return err
+		}
+		if err := f.Assign(context.Background(), id, *child); err != nil {
+			return err
+		}
+		fmt.Printf("assigned: %s to %s\n", id, *child)
+		return nil
+	default:
+		return fmt.Errorf("unknown lessonfactory command %q", args[0])
+	}
+}
+
+func resolveLessonID(workspace, id string) (string, error) {
+	if id != "latest" {
+		return id, nil
+	}
+	base := filepath.Join(workspace, "lessons", "generated")
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return "", err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) == 0 {
+		return "", fmt.Errorf("no generated lessons found")
+	}
+	sort.Strings(names)
+	return names[len(names)-1], nil
 }
 
 func runAdaptiveCmd(args []string, workspace string) error {

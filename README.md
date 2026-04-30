@@ -232,7 +232,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | ✅ Complete |
 | 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | ✅ Complete |
 | 12 | Adaptive experiment engine: artifacts, outcomes, archive, islands, scoring | System learns which lesson variants actually work — tracks mastery gain, engagement, and retention per child | ✅ Complete |
-| 13 | Adaptive lesson factory: rough parent markdown → polished child-specific lesson bundles | Parents write a rough idea; the system generates complete, leveled lessons tailored to their child's style | 🔲 Planned |
+| 13 | Adaptive lesson factory: rough parent markdown → polished child-specific lesson bundles | Parents write a rough idea; the system generates complete, leveled lessons tailored to their child's style | ✅ Complete |
 | 14 | Adaptive tutor runtime: live policy selection, mastery scoring, remediation, evolve loop | Tutor adapts its teaching style in real time — hints, pacing, difficulty, and encouragement evolve per child | 🔲 Planned |
 
 ---
@@ -327,6 +327,7 @@ make test-8.10   # TEST-8.10 — cost tracker records real turns
 make test-9.8    # TEST-9.8  — evolve building blocks (sandbox, path guard, learnings)
 make test-9.9    # TEST-9.9  — self-edit attack rejected by path guard
 make test-12.20  # TEST-12.20 — adaptive experiment demo and inspect report
+make test-13.24  # TEST-13.24 — lesson factory compile/review/approve/assign
 ```
 
 `make test` will fail immediately if `OPENROUTER_API_KEY` is not set.
@@ -434,6 +435,17 @@ make test-12.20  # TEST-12.20 — adaptive experiment demo and inspect report
    # Pass: demo selects a winner, writes child patterns, and inspect prints top artifacts
    ```
 
+   **TEST-13.24 — Lesson factory workflow**
+   ```bash
+   mkdir -p /tmp/nanogo-workspace/inbox/lessons
+   cp ext/adaptive/domains/lessonfactory/testdata/magnets.md /tmp/nanogo-workspace/inbox/lessons/magnets.md
+   /tmp/nanogo --workspace /tmp/nanogo-workspace lessonfactory compile --source /tmp/nanogo-workspace/inbox/lessons/magnets.md
+   /tmp/nanogo --workspace /tmp/nanogo-workspace lessonfactory review --lesson latest
+   /tmp/nanogo --workspace /tmp/nanogo-workspace lessonfactory approve --lesson latest
+   /tmp/nanogo --workspace /tmp/nanogo-workspace lessonfactory assign --lesson latest --child cross
+   # Pass: bundle, review, parent guide, child pathways, and assignment queue are written
+   ```
+
 ## Adaptive Experiment Engine
 
 Phase 12 adds an extension-only adaptive experiment engine under `ext/adaptive/`. It stores artifacts and outcomes under `memory/adaptive/`, scores outcomes across mastery, retention, transfer, engagement, quality, parent rating, frustration, time, and cost, and writes parent-readable reports.
@@ -446,3 +458,20 @@ Manual smoke:
 ```
 
 The demo creates fake adaptive artifacts, records outcomes, selects a winner, writes `memory/adaptive/child_patterns/<child-id>.md`, and creates an inspect report under `memory/adaptive/reports/experiments/`.
+
+## Adaptive Lesson Factory
+
+Phase 13 adds `ext/adaptive/domains/lessonfactory/`, an extension-only adaptive domain that compiles rough parent-authored markdown into deterministic lesson bundles under `lessons/generated/<lesson-id>/`.
+
+Generated bundles include `lesson.yaml`, `parent_guide.md`, `child_summary.md`, per-child default/hands-on/remediation pathways, age/depth levels, activities, quick checks, rubrics, transfer questions, retention review, `sources.md`, and `review.md`. Assignment is blocked until parent approval is recorded.
+
+CLI workflow:
+
+```bash
+/tmp/nanogo --workspace /tmp/nanogo-workspace lessonfactory compile --source /tmp/nanogo-workspace/inbox/lessons/magnets.md
+/tmp/nanogo --workspace /tmp/nanogo-workspace lessonfactory review --lesson latest
+/tmp/nanogo --workspace /tmp/nanogo-workspace lessonfactory approve --lesson latest
+/tmp/nanogo --workspace /tmp/nanogo-workspace lessonfactory assign --lesson latest --child cross
+```
+
+The domain registers adaptive artifact kinds for lesson bundles, pathways, rubrics, and templates. It also exposes a `lessonfactory` tool source with parse, compile, review, package, assign, parent-review, child-outcome, and template-mutation operations.
