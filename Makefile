@@ -6,7 +6,7 @@ SKILLS_DIR  := $(CURDIR)/testdata/skills
 
 .PHONY: all build check-env write-config write-config-obs test \
 	test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 \
-	test-9.8 test-9.9 test-11.11
+	test-9.8 test-9.9 test-11.11 test-12.20
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
@@ -139,8 +139,22 @@ test-11.11:
 		&& echo "PASS: tutor unit tests" || (echo "FAIL: tutor unit tests"; exit 1)
 	@echo "PASS: TEST-11.11 complete"
 
+# TEST-12.20 — End-to-end adaptive experiment smoke test
+test-12.20: build check-env
+	@echo ""; echo "=== TEST-12.20: adaptive experiment smoke ==="
+	@rm -rf $(WORKSPACE)/memory/adaptive
+	@$(BINARY) --workspace $(WORKSPACE) adaptive demo --child cross --subject science --topic magnets
+	@$(BINARY) --workspace $(WORKSPACE) adaptive inspect --child cross --subject science --topic magnets \
+		| grep -qi "top artifacts" \
+		&& echo "PASS: inspect report contains top artifacts" \
+		|| (echo "FAIL: inspect report missing top artifacts"; exit 1)
+	@test -f $(WORKSPACE)/memory/adaptive/child_patterns/cross.md \
+		&& echo "PASS: child pattern summary written" \
+		|| (echo "FAIL: child pattern summary missing"; exit 1)
+	@echo "PASS: TEST-12.20 complete"
+
 # ── Run all manual tests in phase order ───────────────────────────────────────
 
-test: build check-env test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 test-9.8 test-9.9 test-11.11
+test: build check-env test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 test-9.8 test-9.9 test-11.11 test-12.20
 	@echo ""
 	@echo "=== All manual tests complete ==="

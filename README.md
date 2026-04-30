@@ -231,7 +231,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 9 | Evolve extension (full, test-gated) | Self-improving tutor — agent proposes improvements to its own lesson files, tests them, deploys on green | ✅ Complete |
 | 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | ✅ Complete |
 | 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | ✅ Complete |
-| 12 | Adaptive experiment engine: artifacts, outcomes, archive, islands, scoring | System learns which lesson variants actually work — tracks mastery gain, engagement, and retention per child | 🔲 Planned |
+| 12 | Adaptive experiment engine: artifacts, outcomes, archive, islands, scoring | System learns which lesson variants actually work — tracks mastery gain, engagement, and retention per child | ✅ Complete |
 | 13 | Adaptive lesson factory: rough parent markdown → polished child-specific lesson bundles | Parents write a rough idea; the system generates complete, leveled lessons tailored to their child's style | 🔲 Planned |
 | 14 | Adaptive tutor runtime: live policy selection, mastery scoring, remediation, evolve loop | Tutor adapts its teaching style in real time — hints, pacing, difficulty, and encouragement evolve per child | 🔲 Planned |
 
@@ -326,6 +326,7 @@ make test-8.5    # TEST-8.5  — event kinds visible in log
 make test-8.10   # TEST-8.10 — cost tracker records real turns
 make test-9.8    # TEST-9.8  — evolve building blocks (sandbox, path guard, learnings)
 make test-9.9    # TEST-9.9  — self-edit attack rejected by path guard
+make test-12.20  # TEST-12.20 — adaptive experiment demo and inspect report
 ```
 
 `make test` will fail immediately if `OPENROUTER_API_KEY` is not set.
@@ -425,3 +426,23 @@ make test-9.9    # TEST-9.9  — self-edit attack rejected by path guard
    go test -v -run "TestPathGuard|TestPathGuardLearningsEntry" ./ext/evolve/...
    # Pass: IsBlocked returns true for core/ and ext/evolve/ paths; rejection logged
    ```
+
+   **TEST-12.20 — Adaptive experiment smoke**
+   ```bash
+   /tmp/nanogo --workspace /tmp/nanogo-workspace adaptive demo --child cross --subject science --topic magnets
+   /tmp/nanogo --workspace /tmp/nanogo-workspace adaptive inspect --child cross --subject science --topic magnets
+   # Pass: demo selects a winner, writes child patterns, and inspect prints top artifacts
+   ```
+
+## Adaptive Experiment Engine
+
+Phase 12 adds an extension-only adaptive experiment engine under `ext/adaptive/`. It stores artifacts and outcomes under `memory/adaptive/`, scores outcomes across mastery, retention, transfer, engagement, quality, parent rating, frustration, time, and cost, and writes parent-readable reports.
+
+Manual smoke:
+
+```bash
+./nanogo --workspace /tmp/nanogo-workspace adaptive demo --child cross --subject science --topic magnets
+./nanogo --workspace /tmp/nanogo-workspace adaptive inspect --child cross --subject science --topic magnets
+```
+
+The demo creates fake adaptive artifacts, records outcomes, selects a winner, writes `memory/adaptive/child_patterns/<child-id>.md`, and creates an inspect report under `memory/adaptive/reports/experiments/`.

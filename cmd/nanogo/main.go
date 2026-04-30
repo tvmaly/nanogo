@@ -21,10 +21,14 @@ import (
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/skills"
 	"github.com/tvmaly/nanogo/core/tools"
+	"github.com/tvmaly/nanogo/ext/adaptive"
+	"github.com/tvmaly/nanogo/ext/adaptive/archive"
+	"github.com/tvmaly/nanogo/ext/adaptive/reports"
 	costobs "github.com/tvmaly/nanogo/ext/obs/cost"
 	fileobs "github.com/tvmaly/nanogo/ext/obs/file"
 	slogobs "github.com/tvmaly/nanogo/ext/obs/slog"
 	// Register extensions via init()
+	_ "github.com/tvmaly/nanogo/ext/adaptive/tools"
 	_ "github.com/tvmaly/nanogo/ext/llm/openai"
 	_ "github.com/tvmaly/nanogo/ext/llm/router"
 	_ "github.com/tvmaly/nanogo/ext/scheduler/stdlib"
@@ -34,7 +38,7 @@ import (
 	_ "github.com/tvmaly/nanogo/ext/transport/webui"
 )
 
-const version = "0.8.0"
+const version = "0.12.0"
 
 func main() {
 	prompt := flag.String("p", "", "Prompt to send (single-shot mode)")
@@ -61,6 +65,12 @@ func main() {
 			return
 		case "heartbeat":
 			if err := runHeartbeatCmd(flag.Args()[1:]); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "adaptive":
+			if err := runAdaptiveCmd(flag.Args()[1:], *workspaceDir); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
 			}
@@ -112,6 +122,81 @@ func main() {
 	if err := runREPL(ctx, provider, store, bus, model); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func runAdaptiveCmd(args []string, workspace string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: nanogo adaptive demo|inspect --child <id> --subject <subject> --topic <topic>")
+	}
+	fs := flag.NewFlagSet("adaptive "+args[0], flag.ContinueOnError)
+	child := fs.String("child", "", "child id")
+	subject := fs.String("subject", "", "subject")
+	topic := fs.String("topic", "", "topic")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *child == "" || *subject == "" || *topic == "" {
+		return fmt.Errorf("--child, --subject, and --topic are required")
+	}
+	ctx := context.Background()
+	ar, err := archive.New(workspace)
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "demo":
+		d := adaptive.FakeDomain{}
+		arts, err := d.Compile(ctx, adaptive.CompileRequest{ChildID: *child, Subject: *subject, Topic: *topic, SourceBody: "phase 12 adaptive demo"})
+		if err != nil {
+			return err
+		}
+		for i, art := range arts {
+			if err := ar.AddArtifact(ctx, art); err != nil {
+				return err
+			}
+			score := 0.35 + float64(i)*0.45
+			out, err := d.Evaluate(ctx, art, adaptive.Attempt{
+				ID: "demo-" + art.ID, ArtifactID: art.ID, ChildID: *child,
+				StartedAt: time.Now().UTC(), Observations: map[string]any{"score": score},
+			})
+			if err != nil {
+				return err
+			}
+			if err := ar.AddOutcome(ctx, out); err != nil {
+				return err
+			}
+		}
+		top, err := ar.Top(ctx, archive.Query{ChildID: *child, Subject: *subject, Topic: *topic, IncludeFailures: true}, 1)
+		if err != nil {
+			return err
+		}
+		summary, err := reports.WriteChildPatternSummary(ctx, workspace, ar, *child)
+		if err != nil {
+			return err
+		}
+		inspect, err := reports.Inspect(ctx, workspace, ar, reports.InspectQuery{ChildID: *child, Subject: *subject, Topic: *topic})
+		if err != nil {
+			return err
+		}
+		if len(top) > 0 {
+			fmt.Printf("winner: %s\n", top[0].ID)
+		}
+		fmt.Printf("child patterns: %s\ninspect report: %s\n", summary, inspect)
+		return nil
+	case "inspect":
+		path, err := reports.Inspect(ctx, workspace, ar, reports.InspectQuery{ChildID: *child, Subject: *subject, Topic: *topic})
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		fmt.Print(string(data))
+		return nil
+	default:
+		return fmt.Errorf("unknown adaptive command %q", args[0])
 	}
 }
 
