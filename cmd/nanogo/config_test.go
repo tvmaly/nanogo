@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tvmaly/nanogo/core/tools"
+	faketools "github.com/tvmaly/nanogo/core/tools/fake"
 )
 
 // TestLoadConfig_DefaultPath verifies that loadConfig("") uses ~/.nanogo/config.json
@@ -66,5 +70,29 @@ func TestLoadConfig_EnvFallback(t *testing.T) {
 	}
 	if cfg.LLM.Driver != "openai" {
 		t.Errorf("driver = %q, want \"openai\"", cfg.LLM.Driver)
+	}
+}
+
+func TestConfigLoadsToolSources(t *testing.T) {
+	tools.Register("config_test", func(json.RawMessage) (tools.Source, error) {
+		return faketools.NewSource(faketools.New("config_tool", "ok")), nil
+	})
+	cfg := &config{}
+	cfg.Tools.Sources = []toolSourceConfig{{Driver: "config_test"}}
+	src, err := buildToolSourceFromConfig(cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildToolSourceFromConfig: %v", err)
+	}
+	list, err := src.Tools(context.Background(), tools.TurnInfo{})
+	if err != nil {
+		t.Fatalf("Tools: %v", err)
+	}
+	if len(list) != 1 || list[0].Name() != "config_tool" {
+		t.Fatalf("tools = %v", list)
+	}
+
+	cfg.Tools.Sources = []toolSourceConfig{{Driver: "does_not_exist"}}
+	if _, err := buildToolSourceFromConfig(cfg, nil, nil, nil); err == nil {
+		t.Fatal("expected unknown driver error")
 	}
 }

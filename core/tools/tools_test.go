@@ -58,7 +58,7 @@ func TestToolSchema(t *testing.T) {
 			t.Errorf("%s: missing description", tool.Name())
 		}
 		var params struct {
-			Type       string `json:"type"`
+			Type       string                     `json:"type"`
 			Properties map[string]json.RawMessage `json:"properties"`
 		}
 		if err := json.Unmarshal(schema.Function.Parameters, &params); err != nil {
@@ -202,8 +202,8 @@ func TestAskUser(t *testing.T) {
 	au := findTool(t, list, "ask_user")
 
 	var (
-		wg     sync.WaitGroup
-		result string
+		wg      sync.WaitGroup
+		result  string
 		callErr error
 	)
 	wg.Add(1)

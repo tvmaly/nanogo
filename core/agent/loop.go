@@ -71,6 +71,7 @@ func (l *Loop) Run(ctx context.Context) error {
 	var text string
 	var usage *llm.Usage
 	var pendingSignals SignalContext
+	var recentTools []string
 	for iter := 0; iter < maxToolIterations; iter++ {
 		msgs := sess.Messages()
 		if len(pendingSignals.Binding) > 0 || len(pendingSignals.Advisory) > 0 {
@@ -158,6 +159,7 @@ func (l *Loop) Run(ctx context.Context) error {
 
 		for _, tc := range toolCalls {
 			result, toolErr := dispatchTool(ctx, tc, toolList, bus, sess.ID())
+			recentTools = append(recentTools, tc.Name)
 
 			toolResult := harness.ToolResult{
 				Tool:   tc.Name,
@@ -203,6 +205,12 @@ func (l *Loop) Run(ctx context.Context) error {
 					return l.fail(bus, sess, fmt.Errorf("binding sensor error: %s", sig.Message))
 				}
 			}
+		}
+
+		turnInfo = tools.TurnInfo{Session: sess.ID(), Turn: len(sess.Messages()), RecentTools: append([]string(nil), recentTools...)}
+		toolList, err = toolSource.Tools(ctx, turnInfo)
+		if err != nil {
+			return l.fail(bus, sess, fmt.Errorf("agent tools: %w", err))
 		}
 
 		if iter == maxToolIterations-1 {

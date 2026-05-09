@@ -27,6 +27,7 @@ nanogo is different:
 - **Remembers your child** — it builds a persistent memory of what your child knows, struggles with, and enjoys
 - **Runs on your computer** — your family's data stays with you
 - **Fully customizable** — create lessons, quizzes, and study plans by writing simple text files
+- **Planned voice mode** — Phase 15 adds a backend voice session layer for talking to the tutor before the full web UI voice experience is built
 
 ---
 
@@ -92,6 +93,33 @@ export OPENROUTER_API_KEY=your-key-here
 **Windows (Command Prompt):**
 ```
 set OPENROUTER_API_KEY=your-key-here
+```
+
+Phase 15 plans an optional realtime voice extension. The first provider target is xAI Grok Voice.
+
+**Mac / Linux:**
+
+```
+export XAI_API_KEY=your-xai-key-here
+export XAI_REALTIME_MODEL=grok-voice-think-fast-1.0
+```
+
+**Windows (Command Prompt):**
+```
+set XAI_API_KEY=your-xai-key-here
+set XAI_REALTIME_MODEL=grok-voice-think-fast-1.0
+```
+
+Deepgram Voice Agent is planned behind the same adapter pattern for later testing:
+
+**Mac / Linux:**
+```
+export DEEPGRAM_API_KEY=your-deepgram-key-here
+```
+
+**Windows (Command Prompt):**
+```
+set DEEPGRAM_API_KEY=your-deepgram-key-here
 ```
 
 To avoid setting this every time, add it to your shell profile (`.zshrc` or `.bashrc` on Mac/Linux, or System Environment Variables on Windows).
@@ -230,6 +258,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 8 | Obs interfaces + slog + file + cost adapter | Full observability and per-session cost tracking — know exactly what you spent and on what | ✅ Complete |
 | 9 | Evolve extension (full, test-gated) | Self-improving tutor — agent proposes improvements to its own lesson files, tests them, deploys on green | ✅ Complete |
 | 10 | Telegram + cron + otel + progressive tools + MCP + mutants + classifier-router | Full ecosystem — tutor on Telegram, mutation-tested lesson scripts, multi-model routing by difficulty | ✅ Complete |
+| 10.5 | Contract-driven progressive tool design | Nanogo can expose small, safe tool surfaces by default and author new tools from clear operation contracts, manifests, compact outputs, and tests | ✅ Complete |
 | 11 | Web tutor UI extension: student lessons + parent admin + reporting | Family-friendly browser experience — student lessons, parent dashboards, lesson editing, and homeschool reporting | ✅ Complete |
 | 12 | Adaptive experiment engine: artifacts, outcomes, archive, islands, scoring | System learns which lesson variants actually work — tracks mastery gain, engagement, and retention per child | ✅ Complete |
 | 13 | Adaptive lesson factory: rough parent markdown → polished child-specific lesson bundles | Parents write a rough idea; the system generates complete, leveled lessons tailored to their child's style | ✅ Complete |
@@ -304,6 +333,31 @@ If you also want the coverage gate used from Phase 4 onward:
 ```bash
 go test -coverprofile=cover.out ./core/agent/... ./core/memory/... ./core/tools/...
 go tool cover -func=cover.out | tail -1
+```
+
+## Tool Contracts And Progressive Disclosure
+
+Phase 10.5 adds a contract-first tool layer for extension authors and future self-evolution work. New tools can be written as operations with one clear contract: name, description, input schema, output schema, bounded output rules, safety metadata, data-access mode, examples, and tests. Nanogo adapts that contract into `core/tools.Tool` values, generated help, manifests, and optional future CLI/MCP surfaces without duplicating invocation logic.
+
+Progressive disclosure keeps the default tool surface small. A manifest can make only `tool_list`, `tool_help`, `tool_reveal`, and a few safe tools visible at first, while hidden tools remain real callable tools once revealed for the current session. The agent loop refreshes tool schemas after reveal, so a tool can be revealed and used in the same turn.
+
+Configured tool sources use the `tools.sources` config block. With no config, nanogo keeps the existing builtin-only behavior.
+
+```json
+{
+  "tools": {
+    "sources": [
+      {"driver": "builtin"},
+      {
+        "driver": "progressive",
+        "config": {
+          "manifest": "./tools/progressive.json",
+          "sources": [{"driver": "adaptive", "config": {"root": "~/.nanogo/workspace"}}]
+        }
+      }
+    ]
+  }
+}
 ```
 
 ---
@@ -501,3 +555,17 @@ make test-14.27
 ```
 
 The `tutorruntime` tool source exposes policy selection, turn recording, answer grading, mastery update, misconception detection, remediation recommendation, review scheduling, and session summary tools.
+
+## Realtime Voice Extension
+
+Phase 15 plans `ext/voice/`, an extension-only backend voice session layer that can later be consumed by the web UI. The internal contract is modeled around OpenAI Realtime-style events so provider adapters can be swapped without changing the session manager.
+
+The first concrete provider target is xAI Grok Voice using:
+
+```text
+wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-1.0
+```
+
+Configuration uses `XAI_API_KEY` and `XAI_REALTIME_MODEL`. Deepgram Voice Agent is named as a planned second adapter using `DEEPGRAM_API_KEY`, with automated Deepgram tests deferred until requested.
+
+Phase 15 starts with a backend API for `voice_session_start`, audio append/commit/clear, text-only turns, response creation, event streaming, and clean session close. It also plans a simple human smoke-test command before the full web UI voice workflow is built.

@@ -94,6 +94,68 @@ func TestLoopToolCall(t *testing.T) {
 	}
 }
 
+func TestLoopRefreshesToolsAfterReveal(t *testing.T) {
+	t.Parallel()
+	var sawRevealed bool
+	provider := fakellm.NewFunc(func(_ context.Context, req llm.Request) (<-chan llm.Chunk, error) {
+		ch := make(chan llm.Chunk, 3)
+		if len(req.Messages) == 1 {
+			ch <- llm.Chunk{ToolCall: &llm.ToolCall{ID: "reveal-1", Name: "tool_reveal", Args: json.RawMessage(`{"name":"hidden"}`)}}
+			ch <- llm.Chunk{FinishReason: "tool_calls"}
+		} else if !hasSchema(req.Tools, "hidden") {
+			ch <- llm.Chunk{Err: fmt.Errorf("hidden schema not refreshed")}
+		} else if len(req.Messages) > 3 {
+			ch <- llm.Chunk{TextDelta: "done"}
+			ch <- llm.Chunk{FinishReason: "stop"}
+		} else {
+			sawRevealed = true
+			ch <- llm.Chunk{ToolCall: &llm.ToolCall{ID: "hidden-1", Name: "hidden", Args: json.RawMessage(`{}`)}}
+			ch <- llm.Chunk{FinishReason: "tool_calls"}
+		}
+		close(ch)
+		return ch, nil
+	})
+	src := &revealingSource{hidden: faketools.New("hidden", "hidden-result")}
+	bus := fakeevent.New()
+	sess := fakesession.New("sess-reveal")
+	sess.Append(llm.Message{Role: "user", Content: "reveal and use hidden"})
+
+	loop := agent.NewLoop(agent.Config{Provider: provider, Source: src, Session: sess, Bus: bus})
+	if err := loop.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !sawRevealed {
+		t.Fatal("model never saw revealed schema")
+	}
+	if len(src.hidden.Calls) != 1 {
+		t.Fatalf("hidden calls = %d, want 1", len(src.hidden.Calls))
+	}
+}
+
+func TestLoopPassesRecentTools(t *testing.T) {
+	t.Parallel()
+	provider := fakellm.New(
+		[]llm.Chunk{{ToolCall: &llm.ToolCall{ID: "call-1", Name: "my_tool", Args: json.RawMessage(`{}`)}}, {FinishReason: "tool_calls"}},
+		[]llm.Chunk{{TextDelta: "done"}, {FinishReason: "stop"}},
+	)
+	src := &recentSource{tool: faketools.New("my_tool", "ok")}
+	bus := fakeevent.New()
+	sess := fakesession.New("sess-recent")
+	sess.Append(llm.Message{Role: "user", Content: "use tool"})
+
+	loop := agent.NewLoop(agent.Config{Provider: provider, Source: src, Session: sess, Bus: bus})
+	if err := loop.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(src.recentSnapshots) < 2 {
+		t.Fatalf("recent snapshots = %v", src.recentSnapshots)
+	}
+	got := src.recentSnapshots[len(src.recentSnapshots)-1]
+	if strings.Join(got, ",") != "my_tool" {
+		t.Fatalf("RecentTools = %v", got)
+	}
+}
+
 // --- TEST-2.8: Agent loop: stop on error ---
 
 func TestLoopError(t *testing.T) {
@@ -234,6 +296,56 @@ func (r *trackingRunner) run() {
 	if r.onRun != nil {
 		r.onRun()
 	}
+}
+
+type revealingSource struct {
+	revealed bool
+	hidden   *faketools.Tool
+}
+
+func (s *revealingSource) Tools(_ context.Context, _ tools.TurnInfo) ([]tools.Tool, error) {
+	out := []tools.Tool{&revealTestTool{src: s}}
+	if s.revealed {
+		out = append(out, s.hidden)
+	}
+	return out, nil
+}
+
+type revealTestTool struct{ src *revealingSource }
+
+func (*revealTestTool) Name() string { return "tool_reveal" }
+func (*revealTestTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"function","function":{"name":"tool_reveal","description":"reveal","parameters":{"type":"object","properties":{"name":{"type":"string"}}}}}`)
+}
+func (t *revealTestTool) Call(context.Context, json.RawMessage) (string, error) {
+	t.src.revealed = true
+	return `{"revealed":"hidden"}`, nil
+}
+
+type recentSource struct {
+	tool            tools.Tool
+	recentSnapshots [][]string
+}
+
+func (s *recentSource) Tools(_ context.Context, turn tools.TurnInfo) ([]tools.Tool, error) {
+	cp := append([]string(nil), turn.RecentTools...)
+	s.recentSnapshots = append(s.recentSnapshots, cp)
+	return []tools.Tool{s.tool}, nil
+}
+
+func hasSchema(schemas []llm.ToolSchema, name string) bool {
+	for _, raw := range schemas {
+		var schema struct {
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		}
+		_ = json.Unmarshal(raw, &schema)
+		if schema.Function.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // TEST-6.3: Signal injection into next turn
@@ -444,9 +556,9 @@ func TestSubagentRunner_RealExecution(t *testing.T) {
 	// Create a real session store backed by temp dir.
 	// We use the session package's store here via the fake session; pass store directly.
 	runner := agent.NewSubagentRunner(agent.SubagentRunnerConfig{
-		Provider: provider,
-		Source:   faketools.NewSource(),
-		Bus:      bus,
+		Provider:  provider,
+		Source:    faketools.NewSource(),
+		Bus:       bus,
 		Semaphore: agent.NewSubagentSemaphore(4),
 	})
 

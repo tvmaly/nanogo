@@ -18,6 +18,7 @@ import (
 	"github.com/tvmaly/nanogo/core/llm"
 	"github.com/tvmaly/nanogo/core/memory"
 	"github.com/tvmaly/nanogo/core/obs"
+	coreruntime "github.com/tvmaly/nanogo/core/runtime"
 	"github.com/tvmaly/nanogo/core/scheduler"
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/skills"
@@ -29,6 +30,7 @@ import (
 	costobs "github.com/tvmaly/nanogo/ext/obs/cost"
 	fileobs "github.com/tvmaly/nanogo/ext/obs/file"
 	slogobs "github.com/tvmaly/nanogo/ext/obs/slog"
+	"github.com/tvmaly/nanogo/ext/tools/progressive"
 	// Register extensions via init()
 	_ "github.com/tvmaly/nanogo/ext/adaptive/domains/tutorruntime"
 	_ "github.com/tvmaly/nanogo/ext/adaptive/tools"
@@ -117,7 +119,7 @@ func main() {
 	model := cfg.modelForSource("cli")
 
 	if *prompt != "" {
-		if err := runSingleShot(context.Background(), provider, store, bus, memStore, *prompt, model, "cli"); err != nil {
+		if err := runSingleShot(context.Background(), cfg, provider, store, bus, memStore, *prompt, model, "cli"); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -128,7 +130,7 @@ func main() {
 	stopHeartbeats, _ := startHeartbeats(ctx, cfg, provider, store, bus, memStore)
 	defer stopHeartbeats()
 	// REPL mode
-	if err := runREPL(ctx, provider, store, bus, model); err != nil {
+	if err := runREPL(ctx, cfg, provider, store, bus, model); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -307,7 +309,7 @@ func runAdaptiveCmd(args []string, workspace string) error {
 	}
 }
 
-func runSingleShot(ctx context.Context, provider llm.Provider, store session.Store, bus event.Bus, memStore *memory.Store, prompt, model, source string) error {
+func runSingleShot(ctx context.Context, cfg *config, provider llm.Provider, store session.Store, bus event.Bus, memStore *memory.Store, prompt, model, source string) error {
 	sess, err := store.Create("single-shot")
 	if err != nil {
 		return err
@@ -328,7 +330,10 @@ func runSingleShot(ctx context.Context, provider llm.Provider, store session.Sto
 	tokens := bus.Subscribe(evtCtx, event.TokenDelta, event.TurnCompleted, event.Error)
 
 	coord := tools.NewAskUserCoordinator(bus, sess.ID())
-	src := tools.NewBuiltinSource(bus, coord, nil)
+	src, err := buildToolSourceFromConfig(cfg, bus, coord, nil)
+	if err != nil {
+		return err
+	}
 	loop := agent.NewLoop(agent.Config{
 		Provider:   provider,
 		Source:     src,
@@ -376,13 +381,16 @@ func runSingleShot(ctx context.Context, provider llm.Provider, store session.Sto
 }
 
 // runREPL starts an interactive read-eval-print loop.
-func runREPL(ctx context.Context, provider llm.Provider, store session.Store, bus event.Bus, model string) error {
+func runREPL(ctx context.Context, cfg *config, provider llm.Provider, store session.Store, bus event.Bus, model string) error {
 	sess, err := store.Create(newID())
 	if err != nil {
 		return err
 	}
 	coord := tools.NewAskUserCoordinator(bus, sess.ID())
-	src := tools.NewBuiltinSource(bus, coord, nil)
+	src, err := buildToolSourceFromConfig(cfg, bus, coord, nil)
+	if err != nil {
+		return err
+	}
 
 	sc := bufio.NewScanner(os.Stdin)
 	fmt.Print("> ")
@@ -398,7 +406,10 @@ func runREPL(ctx context.Context, provider llm.Provider, store session.Store, bu
 		case "/new":
 			sess, _ = store.Create(newID())
 			coord = tools.NewAskUserCoordinator(bus, sess.ID())
-			src = tools.NewBuiltinSource(bus, coord, nil)
+			src, err = buildToolSourceFromConfig(cfg, bus, coord, nil)
+			if err != nil {
+				return err
+			}
 			fmt.Println("[new session]")
 			fmt.Print("> ")
 			continue
@@ -430,6 +441,7 @@ func runREPL(ctx context.Context, provider llm.Provider, store session.Store, bu
 				cancel()
 			}
 		}
+		cancel()
 		<-done
 		fmt.Println()
 		fmt.Print("> ")
@@ -451,6 +463,9 @@ type config struct {
 		Driver string          `json:"driver"`
 		Config json.RawMessage `json:"config"`
 	} `json:"llm"`
+	Tools struct {
+		Sources []toolSourceConfig `json:"sources"`
+	} `json:"tools"`
 	Obs []struct {
 		Driver string          `json:"driver"`
 		Config json.RawMessage `json:"config"`
@@ -460,6 +475,16 @@ type config struct {
 		Config json.RawMessage `json:"config"`
 	} `json:"scheduler"`
 	Heartbeats []heartbeat.Heartbeat `json:"heartbeats"`
+}
+
+type toolSourceConfig struct {
+	Driver string          `json:"driver"`
+	Config json.RawMessage `json:"config"`
+}
+
+type progressiveSourceConfig struct {
+	Manifest string             `json:"manifest"`
+	Sources  []toolSourceConfig `json:"sources"`
 }
 
 // defaultConfigPath is the path tried when no --config flag is given.
@@ -506,6 +531,63 @@ func loadConfig(path string) (*config, error) {
 
 func buildProvider(cfg *config) (llm.Provider, error) {
 	return llm.Build(cfg.LLM.Driver, cfg.LLM.Config)
+}
+
+func buildToolSourceFromConfig(cfg *config, bus event.Bus, coord tools.AskUserCoord, runner tools.Runner) (tools.Source, error) {
+	if cfg == nil || len(cfg.Tools.Sources) == 0 {
+		return tools.NewBuiltinSource(bus, coord, runner), nil
+	}
+	return buildToolSources(cfg.Tools.Sources, bus, coord, runner)
+}
+
+func buildToolSources(entries []toolSourceConfig, bus event.Bus, coord tools.AskUserCoord, runner tools.Runner) (tools.Source, error) {
+	sources := make([]tools.Source, 0, len(entries))
+	for _, entry := range entries {
+		src, err := buildToolSourceEntry(entry, bus, coord, runner)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, src)
+	}
+	if len(sources) == 1 {
+		return sources[0], nil
+	}
+	return coreruntime.NewMultiSource(sources...), nil
+}
+
+func buildToolSourceEntry(entry toolSourceConfig, bus event.Bus, coord tools.AskUserCoord, runner tools.Runner) (tools.Source, error) {
+	switch entry.Driver {
+	case "", "builtin":
+		return tools.NewBuiltinSource(bus, coord, runner), nil
+	case "progressive":
+		var pc progressiveSourceConfig
+		if err := json.Unmarshal(entry.Config, &pc); err != nil {
+			return nil, err
+		}
+		var child tools.Source
+		var err error
+		if len(pc.Sources) == 0 {
+			child = tools.NewBuiltinSource(bus, coord, runner)
+		} else {
+			child, err = buildToolSources(pc.Sources, bus, coord, runner)
+			if err != nil {
+				return nil, err
+			}
+		}
+		var manifest progressive.Manifest
+		if pc.Manifest != "" {
+			data, err := os.ReadFile(expandPath(pc.Manifest))
+			if err != nil {
+				return nil, err
+			}
+			if err := json.Unmarshal(data, &manifest); err != nil {
+				return nil, err
+			}
+		}
+		return progressive.NewSource(child, manifest)
+	default:
+		return tools.Build(entry.Driver, entry.Config)
+	}
 }
 
 func (c *config) modelForSource(source string) string {
@@ -603,8 +685,12 @@ func startHeartbeats(ctx context.Context, cfg *config, provider llm.Provider, st
 	if err != nil {
 		return func() {}, err
 	}
-	sub := heartbeatSubmitter{provider: provider, store: store, bus: bus, memStore: memStore, model: cfg.modelForSource("heartbeat")}
-	rt := heartbeat.NewRuntime(sched, nil, tools.NewBuiltinSource(bus, nil, nil), sub, bus)
+	sub := heartbeatSubmitter{cfg: cfg, provider: provider, store: store, bus: bus, memStore: memStore, model: cfg.modelForSource("heartbeat")}
+	src, err := buildToolSourceFromConfig(cfg, bus, nil, nil)
+	if err != nil {
+		return func() {}, err
+	}
+	rt := heartbeat.NewRuntime(sched, nil, src, sub, bus)
 	for _, hb := range cfg.Heartbeats {
 		_ = rt.Register(ctx, hb)
 	}
@@ -614,6 +700,7 @@ func startHeartbeats(ctx context.Context, cfg *config, provider llm.Provider, st
 }
 
 type heartbeatSubmitter struct {
+	cfg      *config
 	provider llm.Provider
 	store    session.Store
 	bus      event.Bus
@@ -622,7 +709,7 @@ type heartbeatSubmitter struct {
 }
 
 func (h heartbeatSubmitter) Submit(ctx context.Context, sessionID, message string) error {
-	return runSingleShot(ctx, h.provider, h.store, h.bus, h.memStore, message, h.model, "heartbeat")
+	return runSingleShot(ctx, h.cfg, h.provider, h.store, h.bus, h.memStore, message, h.model, "heartbeat")
 }
 
 func expandPath(path string) string {
