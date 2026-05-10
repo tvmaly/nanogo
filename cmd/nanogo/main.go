@@ -43,7 +43,7 @@ import (
 	_ "github.com/tvmaly/nanogo/ext/transport/webui"
 )
 
-const version = "0.14.0"
+const version = "0.15.0"
 
 func main() {
 	prompt := flag.String("p", "", "Prompt to send (single-shot mode)")
@@ -82,6 +82,12 @@ func main() {
 			return
 		case "lessonfactory":
 			if err := runLessonFactoryCmd(flag.Args()[1:], *workspaceDir); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "voice":
+			if err := runVoiceCmd(flag.Args()[1:], *workspaceDir); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
 			}

@@ -7,9 +7,10 @@ DEFAULT_WORKSPACE := $(shell mktemp -d /tmp/nanogo-workspace.XXXXXX)
 WORKSPACE   ?= $(DEFAULT_WORKSPACE)
 SKILLS_DIR  := $(CURDIR)/testdata/skills
 
-.PHONY: all build check-env write-config write-config-obs test \
+.PHONY: all build build-malgo check-env write-config write-config-obs test \
 	test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 \
-	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24 test-14.27
+	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24 test-14.27 \
+	test-15.17 test-15.18 test-15.19 test-15.5.8 voice-live voice-live-debug
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,10 @@ all: build
 build:
 	go build -o $(BINARY) ./cmd/nanogo
 	@echo "Built: $(BINARY)"
+
+build-malgo:
+	go build -tags malgo -o $(BINARY) ./cmd/nanogo
+	@echo "Built with malgo: $(BINARY)"
 
 # ── Env guard ─────────────────────────────────────────────────────────────────
 
@@ -28,6 +33,14 @@ check-env:
 		exit 1; \
 	fi
 	@echo "OPENROUTER_API_KEY is set."
+
+check-xai-env:
+	@if [ -z "$$XAI_API_KEY" ]; then \
+		echo "ERROR: XAI_API_KEY is not set."; \
+		echo "  export XAI_API_KEY=xai-..."; \
+		exit 1; \
+	fi
+	@echo "XAI_API_KEY is set."
 
 # Write the shared config that most manual tests use.
 write-config: check-env
@@ -199,6 +212,47 @@ test-14.27: build check-env
 		&& echo "PASS: adaptive tutor runtime workflow" \
 		|| (echo "FAIL: adaptive tutor runtime workflow"; exit 1)
 	@echo "PASS: TEST-14.27 complete"
+
+# TEST-15.17 — xAI realtime voice text smoke
+test-15.17: build check-xai-env
+	@echo ""; echo "=== TEST-15.17: xAI realtime voice text smoke ==="
+	@$(BINARY) --workspace $(WORKSPACE) voice smoke --provider xai --child cross \
+		--text "Say hello in one short sentence." --timeout 30s \
+		&& echo "PASS: xAI text voice smoke" \
+		|| (echo "FAIL: xAI text voice smoke"; exit 1)
+
+# TEST-15.18 — xAI realtime voice PCM file smoke
+test-15.18: build check-xai-env
+	@echo ""; echo "=== TEST-15.18: xAI realtime voice PCM file smoke ==="
+	@mkdir -p $(WORKSPACE)/voice
+	@printf '\000\000\000\000\000\000\000\000' > $(WORKSPACE)/voice/sample.pcm
+	@$(BINARY) --workspace $(WORKSPACE) voice smoke --provider xai --child cross \
+		--audio-in $(WORKSPACE)/voice/sample.pcm --audio-out $(WORKSPACE)/voice/response.pcm --timeout 30s \
+		&& echo "PASS: xAI PCM file voice smoke" \
+		|| (echo "FAIL: xAI PCM file voice smoke"; exit 1)
+
+# TEST-15.19 — optional malgo local audio evaluation
+test-15.19: check-xai-env
+	@echo ""; echo "=== TEST-15.19: malgo local audio evaluation ==="
+	@go build -tags malgo -o $(BINARY) ./cmd/nanogo
+	@$(BINARY) --workspace $(WORKSPACE) voice smoke --provider xai --child cross --mic --speaker \
+		&& echo "PASS: malgo local audio evaluation complete or skipped with reason" \
+		|| (echo "FAIL: malgo local audio evaluation"; exit 1)
+
+# TEST-15.5.8 — manual MacBook live voice loop
+test-15.5.8: build-malgo check-xai-env
+	@echo ""; echo "=== TEST-15.5.8: live voice loop ==="
+	@echo "Grant microphone permission if macOS prompts. Use headphones if speaker feedback occurs."
+	@$(BINARY) --workspace $(WORKSPACE) voice live --provider xai --child cross
+
+voice-live: test-15.5.8
+
+voice-live-debug: build-malgo check-xai-env
+	@echo ""; echo "=== voice live with debug PCM capture/playback files ==="
+	@mkdir -p $(WORKSPACE)/voice
+	@$(BINARY) --workspace $(WORKSPACE) voice live --provider xai --child cross \
+		--save-capture-pcm $(WORKSPACE)/voice/capture.pcm \
+		--save-playback-pcm $(WORKSPACE)/voice/playback.pcm
 
 # ── Run all manual tests in phase order ───────────────────────────────────────
 

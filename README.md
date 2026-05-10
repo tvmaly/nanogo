@@ -27,7 +27,7 @@ nanogo is different:
 - **Remembers your child** — it builds a persistent memory of what your child knows, struggles with, and enjoys
 - **Runs on your computer** — your family's data stays with you
 - **Fully customizable** — create lessons, quizzes, and study plans by writing simple text files
-- **Planned voice mode** — Phase 15 adds a backend voice session layer for talking to the tutor before the full web UI voice experience is built
+- **Voice mode** — Phase 15 adds a backend xAI Grok Voice session layer for talking to the tutor before the full web UI voice experience is built
 
 ---
 
@@ -95,7 +95,7 @@ export OPENROUTER_API_KEY=your-key-here
 set OPENROUTER_API_KEY=your-key-here
 ```
 
-Phase 15 plans an optional realtime voice extension. The first provider target is xAI Grok Voice.
+Phase 15 includes an optional realtime voice extension. The first provider target is xAI Grok Voice. You need an xAI account with API access and purchased credits before live voice calls will work.
 
 **Mac / Linux:**
 
@@ -263,6 +263,8 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 12 | Adaptive experiment engine: artifacts, outcomes, archive, islands, scoring | System learns which lesson variants actually work — tracks mastery gain, engagement, and retention per child | ✅ Complete |
 | 13 | Adaptive lesson factory: rough parent markdown → polished child-specific lesson bundles | Parents write a rough idea; the system generates complete, leveled lessons tailored to their child's style | ✅ Complete |
 | 14 | Adaptive tutor runtime: live policy selection, mastery scoring, remediation, evolve loop | Tutor adapts its teaching style in real time — hints, pacing, difficulty, and encouragement evolve per child | ✅ Complete |
+| 15 | Realtime voice extension: xAI Grok Voice backend sessions, voice smoke CLI, optional local audio evaluation | Talk to the tutor through a backend voice session now, with browser microphone/speaker handling still cleanly separable for later phases | ✅ Complete |
+| 15.5 | Live hands-free voice loop: MacBook microphone capture, xAI realtime streaming, speaker playback | Talk to the tutor hands-free from the command line with raw audio kept private unless debug files are requested | ✅ Complete |
 
 ---
 
@@ -558,7 +560,7 @@ The `tutorruntime` tool source exposes policy selection, turn recording, answer 
 
 ## Realtime Voice Extension
 
-Phase 15 plans `ext/voice/`, an extension-only backend voice session layer that can later be consumed by the web UI. The internal contract is modeled around OpenAI Realtime-style events so provider adapters can be swapped without changing the session manager.
+Phase 15 adds `ext/voice/`, an extension-only backend voice session layer that can later be consumed by the web UI. The internal contract is modeled around OpenAI Realtime-style events so provider adapters can be swapped without changing the session manager.
 
 The first concrete provider target is xAI Grok Voice using:
 
@@ -566,6 +568,75 @@ The first concrete provider target is xAI Grok Voice using:
 wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-1.0
 ```
 
-Configuration uses `XAI_API_KEY` and `XAI_REALTIME_MODEL`. Deepgram Voice Agent is named as a planned second adapter using `DEEPGRAM_API_KEY`, with automated Deepgram tests deferred until requested.
+Configuration uses `XAI_API_KEY` and `XAI_REALTIME_MODEL`. The xAI account must have voice/API credits enabled; buy credits from xAI before running the smoke or live voice commands. Deepgram Voice Agent is named as a planned second adapter using `DEEPGRAM_API_KEY`, with automated Deepgram tests deferred until requested.
 
-Phase 15 starts with a backend API for `voice_session_start`, audio append/commit/clear, text-only turns, response creation, event streaming, and clean session close. It also plans a simple human smoke-test command before the full web UI voice workflow is built.
+The backend API supports voice session start, audio append/commit/clear, text-only turns, response creation, event streaming, transcript/raw event persistence under `memory/voice/`, and clean session close. The provider WebSocket layer uses `github.com/coder/websocket`.
+
+Build and run a text-only xAI smoke test:
+
+```bash
+go build -o /tmp/nanogo ./cmd/nanogo
+export XAI_API_KEY=your-xai-key-here
+export XAI_REALTIME_MODEL=grok-voice-think-fast-1.0
+/tmp/nanogo --workspace /tmp/nanogo-workspace voice smoke \
+  --provider xai \
+  --child cross \
+  --text "Say hello in one short sentence."
+```
+
+Run the Makefile xAI smoke tests:
+
+```bash
+make test-15.17   # text-only realtime voice
+make test-15.18   # raw PCM file input/output
+```
+
+Evaluate local microphone/speaker plumbing with `github.com/gen2brain/malgo`:
+
+```bash
+go build -tags malgo -o /tmp/nanogo ./cmd/nanogo
+/tmp/nanogo --workspace /tmp/nanogo-workspace voice smoke \
+  --provider xai \
+  --child cross \
+  --mic \
+  --speaker
+
+make test-15.19
+```
+
+`malgo` is optional and isolated behind the `malgo` build tag because it uses cgo/miniaudio and may require local audio permissions. The backend voice session API does not depend on `malgo`, so browser-based audio can replace local device handling in a later phase.
+
+### Phase 15.5 — live hands-free voice
+
+Phase 15.5 adds a live local mic/speaker loop for command-line use:
+
+```bash
+go build -tags malgo -o /tmp/nanogo ./cmd/nanogo
+export XAI_API_KEY=your-xai-key-here
+export XAI_REALTIME_MODEL=grok-voice-think-fast-1.0
+/tmp/nanogo --workspace /tmp/nanogo-workspace voice live \
+  --provider xai \
+  --child cross
+```
+
+You can also use the Makefile target:
+
+```bash
+make voice-live
+```
+
+The live loop streams MacBook microphone audio to xAI, relies on xAI `server_vad` to detect spoken turns, and plays response audio through local speakers. macOS may prompt for microphone permission. Headphones are recommended to reduce speaker-to-microphone feedback.
+
+By default, live sessions persist normalized events and transcripts under `memory/voice/`, but not raw microphone or speaker PCM. Raw PCM is saved only when explicitly requested:
+
+```bash
+/tmp/nanogo --workspace /tmp/nanogo-workspace voice live \
+  --provider xai \
+  --child cross \
+  --save-capture-pcm /tmp/nanogo-workspace/voice/capture.pcm \
+  --save-playback-pcm /tmp/nanogo-workspace/voice/playback.pcm
+```
+
+```bash
+make voice-live-debug
+```
