@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tvmaly/nanogo/core/tools"
@@ -94,5 +95,67 @@ func TestConfigLoadsToolSources(t *testing.T) {
 	cfg.Tools.Sources = []toolSourceConfig{{Driver: "does_not_exist"}}
 	if _, err := buildToolSourceFromConfig(cfg, nil, nil, nil); err == nil {
 		t.Fatal("expected unknown driver error")
+	}
+}
+
+func TestLoadConfigRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"llm":{"driver":"openai","config":{}},"surprise":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("err = %v, want unknown field", err)
+	}
+}
+
+func TestLoadConfigRejectsUnknownObsDriver(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw := `{"llm":{"driver":"openai","config":{}},"obs":[{"driver":"mystery"}]}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "obs[0].driver") {
+		t.Fatalf("err = %v, want obs[0].driver", err)
+	}
+}
+
+func TestLoadConfigAcceptsDocumentedTopLevelSections(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw := `{
+		"llm":{"driver":"openai","config":{}},
+		"subagents":{"max_concurrent":4,"timeout_s":600},
+		"tools":{"sources":[{"driver":"builtin"}]},
+		"transports":[{"driver":"cli"}],
+		"scheduler":{"driver":"stdlib"},
+		"heartbeats":[],
+		"harness":{"sensors":[],"guides":[]},
+		"obs":[],
+		"memory":{"session_ttl_h":24},
+		"evolve":{"enabled":false}
+	}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.LLM.Driver != "openai" || len(cfg.Transports) != 1 || cfg.Subagents.MaxConcurrent != 4 {
+		t.Fatalf("cfg = %#v", cfg)
+	}
+}
+
+func TestBuildProviderRejectsUnknownLLMDriver(t *testing.T) {
+	t.Parallel()
+	cfg := &config{}
+	cfg.LLM.Driver = "missing"
+	_, err := buildProvider(cfg)
+	if err == nil || !strings.Contains(err.Error(), "unknown llm driver") {
+		t.Fatalf("err = %v, want unknown llm driver", err)
 	}
 }

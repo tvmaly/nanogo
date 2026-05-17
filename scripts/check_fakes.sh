@@ -12,10 +12,10 @@ REQUIRED=(
   "core/tools"
   "core/session"
   "core/agent"
-  "core/memory"
   "core/harness"
-  "core/scheduler"
-  "core/heartbeat"
+  "modules/memory"
+  "modules/scheduler"
+  "modules/heartbeat"
 )
 
 for pkg in "${REQUIRED[@]}"; do

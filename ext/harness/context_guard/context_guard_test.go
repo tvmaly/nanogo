@@ -29,8 +29,8 @@ func TestContextGuardBelowThreshold(t *testing.T) {
 	t.Parallel()
 
 	sensor := context_guard.New(context_guard.Config{
-		CapRatio:     0.8,
-		ContextLimit: 1000,
+		CapRatio:      0.8,
+		ContextLimit:  1000,
 		CurrentTokens: 500, // 50% usage
 	})
 

@@ -11,7 +11,7 @@ import (
 	"os"
 
 	"github.com/tvmaly/nanogo/core/event"
-	"github.com/tvmaly/nanogo/core/transport"
+	"github.com/tvmaly/nanogo/modules/transport"
 )
 
 func init() {

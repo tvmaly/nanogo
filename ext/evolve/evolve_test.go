@@ -89,6 +89,28 @@ func TestPathGuardLearningsEntry(t *testing.T) {
 	}
 }
 
+func TestRankEditCandidatesPrefersWorkspaceAssets(t *testing.T) {
+	t.Parallel()
+	ranked := evolve.RankEditCandidates([]evolve.EditCandidate{
+		{Path: "ext/tools/example/tool.go"},
+		{Path: "workspace/skills/fractions.md"},
+		{Path: "core/agent/loop.go"},
+		{Path: "workspace/tools/fractions/prompt.md"},
+	})
+	got := []string{ranked[0].Path, ranked[1].Path, ranked[2].Path, ranked[3].Path}
+	want := []string{
+		"workspace/skills/fractions.md",
+		"workspace/tools/fractions/prompt.md",
+		"ext/tools/example/tool.go",
+		"core/agent/loop.go",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ranked = %v, want %v", got, want)
+		}
+	}
+}
+
 // TEST-9.3 — Gate: vet/test/build failure causes revert
 func TestGate(t *testing.T) {
 	t.Parallel()

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tvmaly/nanogo/core/scheduler"
+	"github.com/tvmaly/nanogo/modules/scheduler"
 )
 
 func init() {

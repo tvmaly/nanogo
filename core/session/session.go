@@ -1,4 +1,3 @@
-// Package session provides JSONL-backed conversation sessions with resumable checkpoints.
 package session
 
 import (
@@ -122,7 +121,8 @@ func (s *impl) Save() error {
 	enc := json.NewEncoder(f)
 	for _, m := range msgs {
 		if err := enc.Encode(msgRecord{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, At: now}); err != nil {
-			f.Close(); return err
+			f.Close()
+			return err
 		}
 	}
 	f.Close()
@@ -130,13 +130,11 @@ func (s *impl) Save() error {
 	return os.WriteFile(s.metaP, raw, 0644)
 }
 
-// store implements Store with JSONL files.
 type store struct {
 	dir   string
 	clock Clock
 }
 
-// NewStore creates a Store rooted at dir. If clock is nil, uses real time.
 func NewStore(dir string, clock Clock) Store {
 	if clock == nil {
 		clock = realClock{}
@@ -179,7 +177,10 @@ func (s *store) Load(id string) (Session, error) {
 		msgs: msgs, status: m.Status, clock: s.clock, savedAt: m.SavedAt}, nil
 }
 
-func (s *store) Delete(id string) error { _ = os.Remove(s.metaPath(id)); return os.Remove(s.msgPath(id)) }
+func (s *store) Delete(id string) error {
+	_ = os.Remove(s.metaPath(id))
+	return os.Remove(s.msgPath(id))
+}
 
 func (s *store) GC(ctx context.Context, ttl time.Duration) {
 	entries, _ := os.ReadDir(s.dir)

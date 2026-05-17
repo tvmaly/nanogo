@@ -10,9 +10,9 @@ import (
 
 // Bus records published events and delivers them to subscribers.
 type Bus struct {
-	mu       sync.Mutex
-	events   []event.Event
-	subs     []sub
+	mu     sync.Mutex
+	events []event.Event
+	subs   []sub
 }
 
 type sub struct {

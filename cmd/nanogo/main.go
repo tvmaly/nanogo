@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -14,23 +13,17 @@ import (
 
 	"github.com/tvmaly/nanogo/core/agent"
 	"github.com/tvmaly/nanogo/core/event"
-	"github.com/tvmaly/nanogo/core/heartbeat"
 	"github.com/tvmaly/nanogo/core/llm"
-	"github.com/tvmaly/nanogo/core/memory"
-	"github.com/tvmaly/nanogo/core/obs"
-	coreruntime "github.com/tvmaly/nanogo/core/runtime"
-	"github.com/tvmaly/nanogo/core/scheduler"
 	"github.com/tvmaly/nanogo/core/session"
-	"github.com/tvmaly/nanogo/core/skills"
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/ext/adaptive"
 	"github.com/tvmaly/nanogo/ext/adaptive/archive"
 	"github.com/tvmaly/nanogo/ext/adaptive/domains/lessonfactory"
 	"github.com/tvmaly/nanogo/ext/adaptive/reports"
 	costobs "github.com/tvmaly/nanogo/ext/obs/cost"
-	fileobs "github.com/tvmaly/nanogo/ext/obs/file"
-	slogobs "github.com/tvmaly/nanogo/ext/obs/slog"
-	"github.com/tvmaly/nanogo/ext/tools/progressive"
+	"github.com/tvmaly/nanogo/modules/memory"
+	"github.com/tvmaly/nanogo/modules/skills"
+	"github.com/tvmaly/nanogo/modules/tools/builtin"
 	// Register extensions via init()
 	_ "github.com/tvmaly/nanogo/ext/adaptive/domains/tutorruntime"
 	_ "github.com/tvmaly/nanogo/ext/adaptive/tools"
@@ -335,7 +328,7 @@ func runSingleShot(ctx context.Context, cfg *config, provider llm.Provider, stor
 	defer cancel()
 	tokens := bus.Subscribe(evtCtx, event.TokenDelta, event.TurnCompleted, event.Error)
 
-	coord := tools.NewAskUserCoordinator(bus, sess.ID())
+	coord := builtin.NewAskUserCoordinator(bus, sess.ID())
 	src, err := buildToolSourceFromConfig(cfg, bus, coord, nil)
 	if err != nil {
 		return err
@@ -392,7 +385,7 @@ func runREPL(ctx context.Context, cfg *config, provider llm.Provider, store sess
 	if err != nil {
 		return err
 	}
-	coord := tools.NewAskUserCoordinator(bus, sess.ID())
+	coord := builtin.NewAskUserCoordinator(bus, sess.ID())
 	src, err := buildToolSourceFromConfig(cfg, bus, coord, nil)
 	if err != nil {
 		return err
@@ -411,7 +404,7 @@ func runREPL(ctx context.Context, cfg *config, provider llm.Provider, store sess
 			return nil
 		case "/new":
 			sess, _ = store.Create(newID())
-			coord = tools.NewAskUserCoordinator(bus, sess.ID())
+			coord = builtin.NewAskUserCoordinator(bus, sess.ID())
 			src, err = buildToolSourceFromConfig(cfg, bus, coord, nil)
 			if err != nil {
 				return err
@@ -461,261 +454,6 @@ var idCounter int
 func newID() string {
 	idCounter++
 	return fmt.Sprintf("session-%d", idCounter)
-}
-
-// config is the top-level configuration structure.
-type config struct {
-	LLM struct {
-		Driver string          `json:"driver"`
-		Config json.RawMessage `json:"config"`
-	} `json:"llm"`
-	Tools struct {
-		Sources []toolSourceConfig `json:"sources"`
-	} `json:"tools"`
-	Obs []struct {
-		Driver string          `json:"driver"`
-		Config json.RawMessage `json:"config"`
-	} `json:"obs"`
-	Scheduler struct {
-		Driver string          `json:"driver"`
-		Config json.RawMessage `json:"config"`
-	} `json:"scheduler"`
-	Heartbeats []heartbeat.Heartbeat `json:"heartbeats"`
-}
-
-type toolSourceConfig struct {
-	Driver string          `json:"driver"`
-	Config json.RawMessage `json:"config"`
-}
-
-type progressiveSourceConfig struct {
-	Manifest string             `json:"manifest"`
-	Sources  []toolSourceConfig `json:"sources"`
-}
-
-// defaultConfigPath is the path tried when no --config flag is given.
-// Override in tests to avoid touching the real home directory.
-var defaultConfigPath = func() string {
-	home, _ := os.UserHomeDir()
-	return home + "/.nanogo/config.json"
-}()
-
-func loadConfig(path string) (*config, error) {
-	if path == "" {
-		path = defaultConfigPath
-	}
-	f, err := os.Open(path)
-	if err == nil {
-		defer f.Close()
-		var cfg config
-		if err := json.NewDecoder(f).Decode(&cfg); err != nil {
-			return nil, err
-		}
-		return &cfg, nil
-	}
-	// File not found (or unreadable): synthesise from env vars.
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
-	model := os.Getenv("NANOGO_MODEL")
-	if model == "" {
-		model = "anthropic/claude-haiku-4-5"
-	}
-	baseURL := os.Getenv("NANOGO_BASE_URL")
-	if baseURL == "" {
-		baseURL = "https://openrouter.ai/api/v1"
-	}
-	raw, _ := json.Marshal(map[string]string{
-		"base_url":    baseURL,
-		"api_key_env": "OPENROUTER_API_KEY",
-		"api_key":     apiKey,
-		"model":       model,
-	})
-	cfg := &config{}
-	cfg.LLM.Driver = "openai"
-	cfg.LLM.Config = raw
-	return cfg, nil
-}
-
-func buildProvider(cfg *config) (llm.Provider, error) {
-	return llm.Build(cfg.LLM.Driver, cfg.LLM.Config)
-}
-
-func buildToolSourceFromConfig(cfg *config, bus event.Bus, coord tools.AskUserCoord, runner tools.Runner) (tools.Source, error) {
-	if cfg == nil || len(cfg.Tools.Sources) == 0 {
-		return tools.NewBuiltinSource(bus, coord, runner), nil
-	}
-	return buildToolSources(cfg.Tools.Sources, bus, coord, runner)
-}
-
-func buildToolSources(entries []toolSourceConfig, bus event.Bus, coord tools.AskUserCoord, runner tools.Runner) (tools.Source, error) {
-	sources := make([]tools.Source, 0, len(entries))
-	for _, entry := range entries {
-		src, err := buildToolSourceEntry(entry, bus, coord, runner)
-		if err != nil {
-			return nil, err
-		}
-		sources = append(sources, src)
-	}
-	if len(sources) == 1 {
-		return sources[0], nil
-	}
-	return coreruntime.NewMultiSource(sources...), nil
-}
-
-func buildToolSourceEntry(entry toolSourceConfig, bus event.Bus, coord tools.AskUserCoord, runner tools.Runner) (tools.Source, error) {
-	switch entry.Driver {
-	case "", "builtin":
-		return tools.NewBuiltinSource(bus, coord, runner), nil
-	case "progressive":
-		var pc progressiveSourceConfig
-		if err := json.Unmarshal(entry.Config, &pc); err != nil {
-			return nil, err
-		}
-		var child tools.Source
-		var err error
-		if len(pc.Sources) == 0 {
-			child = tools.NewBuiltinSource(bus, coord, runner)
-		} else {
-			child, err = buildToolSources(pc.Sources, bus, coord, runner)
-			if err != nil {
-				return nil, err
-			}
-		}
-		var manifest progressive.Manifest
-		if pc.Manifest != "" {
-			data, err := os.ReadFile(expandPath(pc.Manifest))
-			if err != nil {
-				return nil, err
-			}
-			if err := json.Unmarshal(data, &manifest); err != nil {
-				return nil, err
-			}
-		}
-		return progressive.NewSource(child, manifest)
-	default:
-		return tools.Build(entry.Driver, entry.Config)
-	}
-}
-
-func (c *config) modelForSource(source string) string {
-	if c.LLM.Driver != "router" {
-		var m struct {
-			Model string `json:"model"`
-		}
-		_ = json.Unmarshal(c.LLM.Config, &m)
-		return m.Model
-	}
-	var rc struct {
-		Providers map[string]struct {
-			Config json.RawMessage `json:"config"`
-		} `json:"providers"`
-		Rules    []llm.Rule `json:"rules"`
-		Fallback string     `json:"fallback"`
-	}
-	_ = json.Unmarshal(c.LLM.Config, &rc)
-	route := rc.Fallback
-	for _, r := range rc.Rules {
-		if r.When == "source="+source || r.When == "default" {
-			route = r.Route
-			break
-		}
-	}
-	var m struct {
-		Model string `json:"model"`
-	}
-	if p, ok := rc.Providers[route]; ok {
-		_ = json.Unmarshal(p.Config, &m)
-	}
-	return m.Model
-}
-
-func startObs(ctx context.Context, bus event.Bus, cfg *config) (func(), error) {
-	var cancels []context.CancelFunc
-	obs.Reset()
-	for _, entry := range cfg.Obs {
-		switch entry.Driver {
-		case "slog":
-			var c slogobs.Config
-			_ = json.Unmarshal(entry.Config, &c)
-			obs.SetLoggers(slogobs.New(c, os.Stderr))
-		case "file":
-			var c fileobs.Config
-			if err := json.Unmarshal(entry.Config, &c); err != nil {
-				return nil, err
-			}
-			c.Path = expandPath(c.Path)
-			w, err := fileobs.New(c)
-			if err != nil {
-				return nil, err
-			}
-			subCtx, cancel := context.WithCancel(ctx)
-			cancels = append(cancels, func() { cancel(); _ = w.Close() })
-			go recordEvents(subCtx, bus, w.Record)
-		case "cost":
-			var c costobs.Config
-			if err := json.Unmarshal(entry.Config, &c); err != nil {
-				return nil, err
-			}
-			c.OutputPath = expandPath(c.OutputPath)
-			t := costobs.New(c)
-			subCtx, cancel := context.WithCancel(ctx)
-			cancels = append(cancels, cancel)
-			go recordEvents(subCtx, bus, t.Record)
-		}
-	}
-	return func() {
-		time.Sleep(100 * time.Millisecond)
-		for _, c := range cancels {
-			c()
-		}
-	}, nil
-}
-
-func recordEvents(ctx context.Context, bus event.Bus, fn func(context.Context, event.Event) error) {
-	sub := bus.Subscribe(ctx, event.TurnStarted, event.TokenDelta, event.ToolCallStarted, event.ToolCallResult,
-		event.TurnCompleted, event.AskUser, event.MemoryUpdated, event.SkillTriggered, event.SensorSignal,
-		event.HeartbeatFired, event.EvolveProposed, event.EvolveApplied, event.EvolveReverted, event.Error)
-	for e := range sub {
-		_ = fn(ctx, e)
-	}
-}
-
-func startHeartbeats(ctx context.Context, cfg *config, provider llm.Provider, store session.Store, bus event.Bus, memStore *memory.Store) (func(), error) {
-	if len(cfg.Heartbeats) == 0 {
-		return func() {}, nil
-	}
-	driver := cfg.Scheduler.Driver
-	if driver == "" {
-		driver = "stdlib"
-	}
-	sched, err := scheduler.Build(driver, cfg.Scheduler.Config)
-	if err != nil {
-		return func() {}, err
-	}
-	sub := heartbeatSubmitter{cfg: cfg, provider: provider, store: store, bus: bus, memStore: memStore, model: cfg.modelForSource("heartbeat")}
-	src, err := buildToolSourceFromConfig(cfg, bus, nil, nil)
-	if err != nil {
-		return func() {}, err
-	}
-	rt := heartbeat.NewRuntime(sched, nil, src, sub, bus)
-	for _, hb := range cfg.Heartbeats {
-		_ = rt.Register(ctx, hb)
-	}
-	hbCtx, cancel := context.WithCancel(ctx)
-	_ = sched.Start(hbCtx)
-	return cancel, nil
-}
-
-type heartbeatSubmitter struct {
-	cfg      *config
-	provider llm.Provider
-	store    session.Store
-	bus      event.Bus
-	memStore *memory.Store
-	model    string
-}
-
-func (h heartbeatSubmitter) Submit(ctx context.Context, sessionID, message string) error {
-	return runSingleShot(ctx, h.cfg, h.provider, h.store, h.bus, h.memStore, message, h.model, "heartbeat")
 }
 
 func expandPath(path string) string {
@@ -892,12 +630,12 @@ func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts)
 	}
 	sess.Append(llm.Message{Role: "user", Content: opts.UserMsg})
 
-	coord := tools.NewAskUserCoordinator(r.bus, sess.ID())
+	coord := builtin.NewAskUserCoordinator(r.bus, sess.ID())
 	var src tools.Source
 	if len(opts.Tools) > 0 {
-		src = tools.NewFilteredSource(tools.NewBuiltinSource(r.bus, coord, nil), opts.Tools)
+		src = tools.NewFilteredSource(builtin.NewSource(r.bus, coord, nil), opts.Tools)
 	} else {
-		src = tools.NewBuiltinSource(r.bus, coord, nil)
+		src = builtin.NewSource(r.bus, coord, nil)
 	}
 
 	loop := agent.NewLoop(agent.Config{
@@ -933,7 +671,7 @@ func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts)
 			cancel()
 			return "", fmt.Errorf("%v", evt.Payload)
 		case event.AskUser:
-			if p, ok := evt.Payload.(tools.AskUserPayload); ok {
+			if p, ok := evt.Payload.(builtin.AskUserPayload); ok {
 				fmt.Printf("\n%s\n> ", p.Question)
 				if sc.Scan() {
 					coord.Resume(p.TurnID, strings.TrimSpace(sc.Text()))

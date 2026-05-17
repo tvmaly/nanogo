@@ -37,19 +37,19 @@ check() {
 
 echo "Core LOC budget check:"
 check "core/agent"     500
-check "core/memory"    550
 check "core/tools"     400
-check "core/skills"    220
 check "core/session"   180
-check "core/heartbeat" 120
 check "core/runtime"   120
 check "core/event"      96
 check "core/harness"   120
 check "core/llm"       130
 check "core/config"    100
-check "core/obs"        70
-check "core/transport"  60
-check "core/scheduler"  40
+check "modules/memory"    550
+check "modules/skills"    220
+check "modules/heartbeat" 120
+check "modules/obs"        70
+check "modules/transport"  60
+check "modules/scheduler"  40
 
 TOTAL=$(count_loc_recursive "core")
 echo "  Core total: $TOTAL / 2690"

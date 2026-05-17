@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/tvmaly/nanogo/core/obs"
+	"github.com/tvmaly/nanogo/modules/obs"
 )
 
 type Config struct {

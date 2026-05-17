@@ -188,7 +188,6 @@ func TestBindingSessionIsolation(t *testing.T) {
 	}
 }
 
-
 // helpers
 
 type manualClock struct{ now time.Time }

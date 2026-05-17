@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tvmaly/nanogo/core/heartbeat"
-	fakesched "github.com/tvmaly/nanogo/core/scheduler/fake"
+	"github.com/tvmaly/nanogo/modules/heartbeat"
+	fakesched "github.com/tvmaly/nanogo/modules/scheduler/fake"
 )
 
 // heartbeatConfigPath returns the path to the persisted heartbeats file.

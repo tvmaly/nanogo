@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/tvmaly/nanogo/core/obs"
 	slogobs "github.com/tvmaly/nanogo/ext/obs/slog"
+	"github.com/tvmaly/nanogo/modules/obs"
 )
 
 func TestSlogJSON(t *testing.T) {

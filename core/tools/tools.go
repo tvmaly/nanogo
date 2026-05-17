@@ -1,4 +1,4 @@
-// Package tools defines the Tool and Source interfaces and the builtin tool registry.
+// Package tools defines Tool and Source interfaces plus the tool-source registry.
 package tools
 
 import (

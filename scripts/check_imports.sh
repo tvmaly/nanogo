@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Enforce invariant #1: core/ must never import ext/ or pkg/
+# Enforce invariant #1: core/ must never import ext/, modules/, or pkg/
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -7,9 +7,9 @@ MODULE="github.com/tvmaly/nanogo"
 FAIL=0
 
 while IFS= read -r -d '' file; do
-  if grep -qE "\"${MODULE}/(ext|pkg)/" "$file"; then
-    echo "VIOLATION: $file imports ext/ or pkg/" >&2
-    grep -nE "\"${MODULE}/(ext|pkg)/" "$file" >&2
+  if grep -qE "\"${MODULE}/(ext|modules|pkg)/" "$file"; then
+    echo "VIOLATION: $file imports ext/, modules/, or pkg/" >&2
+    grep -nE "\"${MODULE}/(ext|modules|pkg)/" "$file" >&2
     FAIL=1
   fi
 done < <(find "$REPO_ROOT/core" -name "*.go" ! -name "*_test.go" -print0)

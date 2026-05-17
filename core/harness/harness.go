@@ -18,7 +18,7 @@ type ToolResult struct {
 
 // Signal represents feedback from a sensor about a tool result.
 type Signal struct {
-	Severity string         // "error" | "warn" | "info"
+	Severity string // "error" | "warn" | "info"
 	Message  string
 	Fix      string
 	Attrs    map[string]any
@@ -44,11 +44,11 @@ type SensorFactory func(cfg json.RawMessage) (Sensor, error)
 type GuideFactory func(cfg json.RawMessage) (Guide, error)
 
 var (
-	mu           sync.RWMutex
-	sensors      = make(map[string]SensorFactory)
-	guides       = make(map[string]GuideFactory)
-	sensorOrder  []string // tracks registration order
-	guideOrder   []string
+	mu          sync.RWMutex
+	sensors     = make(map[string]SensorFactory)
+	guides      = make(map[string]GuideFactory)
+	sensorOrder []string // tracks registration order
+	guideOrder  []string
 )
 
 // RegisterSensor registers a sensor factory.

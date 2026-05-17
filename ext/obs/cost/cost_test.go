@@ -97,10 +97,10 @@ func TestCostServerToolUsage(t *testing.T) {
 		Kind: event.TurnCompleted,
 		At:   time.Now(),
 		Payload: event.TurnCompletedPayload{
-			Model:        "m",
-			InputTokens:  100,
-			OutputTokens: 50,
-			Source:       "cli",
+			Model:         "m",
+			InputTokens:   100,
+			OutputTokens:  50,
+			Source:        "cli",
 			ServerToolUse: map[string]int{"web_search_requests": 2},
 		},
 	}

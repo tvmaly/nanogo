@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/tvmaly/nanogo/core/event"
-	"github.com/tvmaly/nanogo/core/transport"
+	"github.com/tvmaly/nanogo/modules/transport"
 )
 
 func init() {
@@ -54,11 +54,11 @@ type Block struct {
 
 // allowedVideoHosts is the allowlist for remote video embeds.
 var allowedVideoHosts = map[string]bool{
-	"www.youtube.com":    true,
-	"youtube.com":        true,
-	"youtu.be":           true,
-	"vimeo.com":          true,
-	"player.vimeo.com":   true,
+	"www.youtube.com":  true,
+	"youtube.com":      true,
+	"youtu.be":         true,
+	"vimeo.com":        true,
+	"player.vimeo.com": true,
 }
 
 // ValidateVideoURL returns an error if the URL host is not on the allowlist.

@@ -7,7 +7,7 @@ DEFAULT_WORKSPACE := $(shell mktemp -d /tmp/nanogo-workspace.XXXXXX)
 WORKSPACE   ?= $(DEFAULT_WORKSPACE)
 SKILLS_DIR  := $(CURDIR)/testdata/skills
 
-.PHONY: all build build-malgo check-env write-config write-config-obs test \
+.PHONY: all build build-malgo verify-local check-env write-config write-config-obs test \
 	test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 \
 	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24 test-14.27 \
 	test-15.17 test-15.18 test-15.19 test-15.5.8 voice-live voice-live-debug
@@ -23,6 +23,16 @@ build:
 build-malgo:
 	go build -tags malgo -o $(BINARY) ./cmd/nanogo
 	@echo "Built with malgo: $(BINARY)"
+
+verify-local:
+	GOCACHE=/tmp/go-cache go build -o $(BINARY) ./cmd/nanogo
+	GOCACHE=/tmp/go-cache go test ./...
+	GOCACHE=/tmp/go-cache go test -race ./...
+	GOCACHE=/tmp/go-cache go vet ./...
+	scripts/check_core_boundary.sh
+	scripts/check_imports.sh
+	scripts/check_fakes.sh
+	scripts/loc_budget.sh
 
 # ── Env guard ─────────────────────────────────────────────────────────────────
 

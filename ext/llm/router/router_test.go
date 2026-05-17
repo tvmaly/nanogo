@@ -36,7 +36,8 @@ func TestRouterFactory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
-	for range ch {}
+	for range ch {
+	}
 }
 
 type fp struct{}

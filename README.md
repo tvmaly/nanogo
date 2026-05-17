@@ -181,6 +181,44 @@ Everything is stored as plain text files in `~/.nanogo/workspace/` on your own m
 
 ---
 
+## Workspace contracts and local verification
+
+Phase 17 moved nanogo toward a smaller execution kernel and more behavior in modules and editable workspace assets. The preferred place to change tutor behavior is now plain files before Go code:
+
+```text
+workspace/tools/<name>/tool.yaml
+workspace/tools/<name>/prompt.md
+workspace/tools/<name>/tests.yaml
+workspace/skills/*.md
+workspace/tutorials/*.md
+workspace/policies/*.md
+```
+
+Workspace tool definitions are validated by `ext/workspace`: missing commands, unknown manifest fields, path traversal, duplicate names, and missing tests fail with field-specific errors.
+
+For local verification, run:
+
+```bash
+make verify-local
+```
+
+That target builds the binary, runs normal and race-detector tests, runs `go vet`, checks the Phase 17 core boundary, enforces the `core/` import invariant, checks required fakes, and verifies the core LOC budget.
+
+Current architecture split:
+
+| Directory | Role | Examples |
+|---|---|---|
+| `core/` | Tiny execution kernel and stable contracts used directly by the agent loop. | `agent`, `event`, `harness`, `llm`, `session`, `tools` |
+| `modules/` | Stable first-party runtime subsystems: shared contracts, registries, and default product behavior. | `modules/obs`, `modules/transport`, `modules/memory`, `modules/tools/builtin` |
+| `ext/` | Optional concrete adapters, providers, domains, and experiments that plug into core or module contracts. | `ext/obs/slog`, `ext/transport/rest`, `ext/scheduler/cron`, `ext/adaptive`, `ext/voice` |
+| `workspace/` | Editable data-first behavior and user/product assets. | `workspace/tools/...`, `workspace/skills/*.md`, `workspace/policies/*.md` |
+
+A useful rule of thumb: `modules/` is the first-party subsystem layer, while `ext/` is the plug-in and adaptation layer. For example, `modules/obs` defines the shared observability API and fan-out behavior, while `ext/obs/slog`, `ext/obs/file`, and `ext/obs/cost` are concrete observers. Similarly, `modules/transport` defines the transport contract and registry, while `ext/transport/cli`, `ext/transport/rest`, and `ext/transport/webui` are concrete transports.
+
+Not every `modules/` package is interfaces-only. `modules/memory`, `modules/skills`, and `modules/tools/builtin` contain default first-party behavior. They stay outside `core/` because they are product/runtime behavior rather than kernel primitives.
+
+---
+
 ## Features — what this means for your family
 
 | Feature | What it means for you |
@@ -333,7 +371,7 @@ scripts/check_fakes.sh
 If you also want the coverage gate used from Phase 4 onward:
 
 ```bash
-go test -coverprofile=cover.out ./core/agent/... ./core/memory/... ./core/tools/...
+go test -coverprofile=cover.out ./core/agent/... ./modules/memory/... ./modules/tools/builtin/...
 go tool cover -func=cover.out | tail -1
 ```
 

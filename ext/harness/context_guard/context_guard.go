@@ -11,10 +11,10 @@ import (
 
 // Config configures the context_guard sensor.
 type Config struct {
-	CapRatio        float64 `json:"cap_ratio"`        // default 0.8
-	ContextLimit    int     `json:"context_limit"`    // max context tokens
-	CurrentTokens   int     `json:"current_tokens"`   // current usage (for testing)
-	EnabledForTests bool   `json:"enabled_for_tests"` // allow injection for tests
+	CapRatio        float64 `json:"cap_ratio"`         // default 0.8
+	ContextLimit    int     `json:"context_limit"`     // max context tokens
+	CurrentTokens   int     `json:"current_tokens"`    // current usage (for testing)
+	EnabledForTests bool    `json:"enabled_for_tests"` // allow injection for tests
 }
 
 // Sensor warns when context usage exceeds threshold.

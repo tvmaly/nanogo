@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/tvmaly/nanogo/core/event"
-	"github.com/tvmaly/nanogo/core/transport/fake"
 	"github.com/tvmaly/nanogo/ext/transport/rest"
+	"github.com/tvmaly/nanogo/modules/transport/fake"
 )
 
 func newTestTransport(t *testing.T, token string) (*rest.Transport, *fake.App, event.Bus) {

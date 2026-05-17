@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/tvmaly/nanogo/core/event"
-	"github.com/tvmaly/nanogo/core/transport/fake"
 	"github.com/tvmaly/nanogo/ext/transport/repl"
+	"github.com/tvmaly/nanogo/modules/transport/fake"
 )
 
 // stubApp wraps fake.App and emits a TurnCompleted after Submit.

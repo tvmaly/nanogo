@@ -10,7 +10,7 @@ import (
 	"github.com/tvmaly/nanogo/core/llm"
 	fakellm "github.com/tvmaly/nanogo/core/llm/fake"
 	"github.com/tvmaly/nanogo/core/session"
-	"github.com/tvmaly/nanogo/core/skills"
+	"github.com/tvmaly/nanogo/modules/skills"
 )
 
 func parseJSON(data json.RawMessage, v any) error { return json.Unmarshal(data, v) }

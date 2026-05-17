@@ -8,8 +8,8 @@ import (
 
 	"github.com/tvmaly/nanogo/core/event"
 	eventfake "github.com/tvmaly/nanogo/core/event/fake"
-	"github.com/tvmaly/nanogo/core/transport"
 	"github.com/tvmaly/nanogo/ext/transport/cli"
+	"github.com/tvmaly/nanogo/modules/transport"
 )
 
 // TestCLI_RegisteredViaInit verifies that importing the cli package registers
@@ -104,7 +104,7 @@ func (e *errorApp) Submit(ctx context.Context, session, _ string) error {
 	}()
 	return nil
 }
-func (e *errorApp) Resume(_ context.Context, _, _ string) error          { return nil }
+func (e *errorApp) Resume(_ context.Context, _, _ string) error { return nil }
 func (e *errorApp) TriggerSkill(_ context.Context, _ string, _ map[string]any) error {
 	return nil
 }
