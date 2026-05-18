@@ -33,6 +33,12 @@ func TestArchiveJSONL(t *testing.T) {
 	if err != nil || len(outs) != 3 {
 		t.Fatalf("Outcomes = %+v err=%v", outs, err)
 	}
+	if arts[0].SchemaVersion != "adaptive.artifact.v1" {
+		t.Fatalf("artifact schema version = %q", arts[0].SchemaVersion)
+	}
+	if outs[0].SchemaVersion != "adaptive.outcome.v1" {
+		t.Fatalf("outcome schema version = %q", outs[0].SchemaVersion)
+	}
 	f, _ := os.OpenFile(filepath.Join(ar.Root(), "memory", "adaptive", "archive.jsonl"), os.O_APPEND|os.O_WRONLY, 0644)
 	_, _ = f.WriteString("{bad\n")
 	_ = f.Close()

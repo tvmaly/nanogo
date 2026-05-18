@@ -12,10 +12,11 @@ import (
 )
 
 type Config struct {
-	Workspace     string
-	Provider      realtime.ProviderAdapter
-	ProviderCfg   realtime.ProviderConfig
-	SessionUpdate realtime.Event
+	Workspace                string
+	Provider                 realtime.ProviderAdapter
+	ProviderCfg              realtime.ProviderConfig
+	SessionUpdate            realtime.Event
+	PersistRawProviderEvents bool
 }
 
 type Manager struct {
@@ -37,7 +38,7 @@ type Session struct {
 func NewManager(cfg Config) *Manager {
 	return &Manager{
 		cfg:      cfg,
-		store:    NewStore(cfg.Workspace),
+		store:    NewStoreWithPolicy(cfg.Workspace, cfg.PersistRawProviderEvents),
 		sessions: map[string]*Session{},
 	}
 }

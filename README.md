@@ -194,7 +194,7 @@ workspace/tutorials/*.md
 workspace/policies/*.md
 ```
 
-Workspace tool definitions are validated by `ext/workspace`: missing commands, unknown manifest fields, path traversal, duplicate names, and missing tests fail with field-specific errors.
+Workspace tool definitions are validated by `ext/workspace`: missing commands, unknown manifest fields, path traversal, duplicate names, and missing tests fail with field-specific errors. Phase 17.5 adds `schema_version` metadata to workspace tool manifests so future workspace assets can evolve without ambiguous migrations.
 
 For local verification, run:
 
@@ -202,7 +202,7 @@ For local verification, run:
 make verify-local
 ```
 
-That target builds the binary, runs normal and race-detector tests, runs `go vet`, checks the Phase 17 core boundary, enforces the `core/` import invariant, checks required fakes, and verifies the core LOC budget.
+That target builds the binary, runs normal and race-detector tests, runs `go vet`, checks the Phase 17 core boundary, enforces the `core/` and `modules/` import invariants, checks required fakes, and verifies the core LOC budget.
 
 Current architecture split:
 
@@ -216,6 +216,13 @@ Current architecture split:
 A useful rule of thumb: `modules/` is the first-party subsystem layer, while `ext/` is the plug-in and adaptation layer. For example, `modules/obs` defines the shared observability API and fan-out behavior, while `ext/obs/slog`, `ext/obs/file`, and `ext/obs/cost` are concrete observers. Similarly, `modules/transport` defines the transport contract and registry, while `ext/transport/cli`, `ext/transport/rest`, and `ext/transport/webui` are concrete transports.
 
 Not every `modules/` package is interfaces-only. `modules/memory`, `modules/skills`, and `modules/tools/builtin` contain default first-party behavior. They stay outside `core/` because they are product/runtime behavior rather than kernel primitives.
+
+Phase 17.5 closes runtime-wiring gaps that matter for Phase 18 AgentFlow tutor flows:
+
+- `spawn` is now wired through configured subagent runners in prompt, REPL, skill, heartbeat, and transport-driven turns, so future flow executors can delegate without bypassing nanogo sessions, tools, events, or concurrency limits.
+- Configured transports use a shared `modules/transport.App` adapter over the existing agent loop, which reduces one-off CLI/REST/WebUI composition paths before adding `flow run`.
+- Voice sessions persist normalized events by default, while raw provider event logs require explicit opt-in, reducing privacy risk for child transcripts and provider payloads.
+- Adaptive archive records, voice event records, raw voice logs, and workspace tool manifests now include schema-version metadata to make evidence archives safer to inspect and migrate.
 
 ---
 
@@ -303,6 +310,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 14 | Adaptive tutor runtime: live policy selection, mastery scoring, remediation, evolve loop | Tutor adapts its teaching style in real time — hints, pacing, difficulty, and encouragement evolve per child | ✅ Complete |
 | 15 | Realtime voice extension: xAI Grok Voice backend sessions, voice smoke CLI, optional local audio evaluation | Talk to the tutor through a backend voice session now, with browser microphone/speaker handling still cleanly separable for later phases | ✅ Complete |
 | 15.5 | Live hands-free voice loop: MacBook microphone capture, xAI realtime streaming, speaker playback | Talk to the tutor hands-free from the command line with raw audio kept private unless debug files are requested | ✅ Complete |
+| 17.5 | Phase 18 readiness hardening: spawn runtime wiring, configured transport app adapter, schema-versioned evidence, module import guard, raw voice log opt-in | Complex tutor flows can safely delegate, run through configured transports, and keep auditable evidence without exposing raw provider data by default | ✅ Complete |
 
 ---
 

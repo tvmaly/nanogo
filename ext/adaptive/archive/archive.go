@@ -42,6 +42,9 @@ func (a *Archive) Root() string { return a.root }
 func (a *Archive) AddArtifact(_ context.Context, art adaptive.AdaptiveArtifact) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if art.SchemaVersion == "" {
+		art.SchemaVersion = "adaptive.artifact.v1"
+	}
 	if art.CreatedAt.IsZero() {
 		art.CreatedAt = time.Now().UTC()
 	}
@@ -51,6 +54,9 @@ func (a *Archive) AddArtifact(_ context.Context, art adaptive.AdaptiveArtifact) 
 func (a *Archive) AddOutcome(_ context.Context, r adaptive.AdaptiveEvalResult) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if r.SchemaVersion == "" {
+		r.SchemaVersion = "adaptive.outcome.v1"
+	}
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = time.Now().UTC()
 	}

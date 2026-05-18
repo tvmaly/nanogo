@@ -128,6 +128,24 @@ func main() {
 	ctx := context.Background()
 	stopHeartbeats, _ := startHeartbeats(ctx, cfg, provider, store, bus, memStore)
 	defer stopHeartbeats()
+	if len(cfg.Transports) > 0 {
+		app := newTransportApp(transportAppConfig{
+			Cfg:       cfg,
+			Provider:  provider,
+			Store:     store,
+			Bus:       bus,
+			MemStore:  memStore,
+			Model:     model,
+			SkillsDir: *skillsDir,
+		})
+		stopTransports, err := startConfiguredTransports(ctx, cfg, bus, app)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "transport error: %v\n", err)
+			os.Exit(1)
+		}
+		defer stopTransports()
+		select {}
+	}
 	// REPL mode
 	if err := runREPL(ctx, cfg, provider, store, bus, model); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -329,7 +347,7 @@ func runSingleShot(ctx context.Context, cfg *config, provider llm.Provider, stor
 	tokens := bus.Subscribe(evtCtx, event.TokenDelta, event.TurnCompleted, event.Error)
 
 	coord := builtin.NewAskUserCoordinator(bus, sess.ID())
-	src, err := buildToolSourceFromConfig(cfg, bus, coord, nil)
+	src, err := buildRuntimeToolSource(cfg, provider, store, bus, coord)
 	if err != nil {
 		return err
 	}
@@ -386,7 +404,7 @@ func runREPL(ctx context.Context, cfg *config, provider llm.Provider, store sess
 		return err
 	}
 	coord := builtin.NewAskUserCoordinator(bus, sess.ID())
-	src, err := buildToolSourceFromConfig(cfg, bus, coord, nil)
+	src, err := buildRuntimeToolSource(cfg, provider, store, bus, coord)
 	if err != nil {
 		return err
 	}
@@ -405,7 +423,7 @@ func runREPL(ctx context.Context, cfg *config, provider llm.Provider, store sess
 		case "/new":
 			sess, _ = store.Create(newID())
 			coord = builtin.NewAskUserCoordinator(bus, sess.ID())
-			src, err = buildToolSourceFromConfig(cfg, bus, coord, nil)
+			src, err = buildRuntimeToolSource(cfg, provider, store, bus, coord)
 			if err != nil {
 				return err
 			}
@@ -598,7 +616,7 @@ func skillRun(args []string, skillsDir string) error {
 
 	bus := event.NewBus()
 	store := session.NewStore(os.TempDir(), nil)
-	runner := &cliSkillRunner{provider: provider, store: store, bus: bus, model: cfg.modelForSource("cli")}
+	runner := &cliSkillRunner{provider: provider, store: store, bus: bus, model: cfg.modelForSource("cli"), cfg: cfg}
 	d := skills.NewDispatcher(loader, runner)
 
 	return d.Fire(context.Background(), skills.Trigger{
@@ -614,6 +632,7 @@ type cliSkillRunner struct {
 	store    session.Store
 	bus      event.Bus
 	model    string
+	cfg      *config
 }
 
 func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts) (string, error) {
@@ -632,11 +651,14 @@ func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts)
 
 	coord := builtin.NewAskUserCoordinator(r.bus, sess.ID())
 	var src tools.Source
+	runnerHolder := &sourceHolder{}
+	spawnRunner := buildSubagentRunner(r.cfg, r.provider, runnerHolder, r.bus, r.store)
 	if len(opts.Tools) > 0 {
-		src = tools.NewFilteredSource(builtin.NewSource(r.bus, coord, nil), opts.Tools)
+		src = tools.NewFilteredSource(builtin.NewSource(r.bus, coord, spawnRunner), opts.Tools)
 	} else {
-		src = builtin.NewSource(r.bus, coord, nil)
+		src = builtin.NewSource(r.bus, coord, spawnRunner)
 	}
+	runnerHolder.Set(src)
 
 	loop := agent.NewLoop(agent.Config{
 		Provider:   r.provider,

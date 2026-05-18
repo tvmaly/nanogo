@@ -22,19 +22,20 @@ const (
 )
 
 type AdaptiveArtifact struct {
-	ID        string         `json:"id"`
-	Kind      ArtifactKind   `json:"kind"`
-	Version   int            `json:"version"`
-	ChildID   string         `json:"child_id,omitempty"`
-	Subject   string         `json:"subject,omitempty"`
-	Topic     string         `json:"topic,omitempty"`
-	AgeBand   string         `json:"age_band,omitempty"`
-	Strategy  string         `json:"strategy,omitempty"`
-	Files     []string       `json:"files,omitempty"`
-	ParentID  string         `json:"parent_id,omitempty"`
-	IslandID  string         `json:"island_id,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
+	SchemaVersion string         `json:"schema_version,omitempty"`
+	ID            string         `json:"id"`
+	Kind          ArtifactKind   `json:"kind"`
+	Version       int            `json:"version"`
+	ChildID       string         `json:"child_id,omitempty"`
+	Subject       string         `json:"subject,omitempty"`
+	Topic         string         `json:"topic,omitempty"`
+	AgeBand       string         `json:"age_band,omitempty"`
+	Strategy      string         `json:"strategy,omitempty"`
+	Files         []string       `json:"files,omitempty"`
+	ParentID      string         `json:"parent_id,omitempty"`
+	IslandID      string         `json:"island_id,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
 }
 
 type Attempt struct {
@@ -49,6 +50,7 @@ type Attempt struct {
 }
 
 type AdaptiveEvalResult struct {
+	SchemaVersion    string             `json:"schema_version,omitempty"`
 	ArtifactID       string             `json:"artifact_id"`
 	AttemptID        string             `json:"attempt_id,omitempty"`
 	ChildID          string             `json:"child_id"`

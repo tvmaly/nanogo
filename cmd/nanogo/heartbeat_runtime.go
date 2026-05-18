@@ -24,7 +24,7 @@ func startHeartbeats(ctx context.Context, cfg *config, provider llm.Provider, st
 		return func() {}, err
 	}
 	sub := heartbeatSubmitter{cfg: cfg, provider: provider, store: store, bus: bus, memStore: memStore, model: cfg.modelForSource("heartbeat")}
-	src, err := buildToolSourceFromConfig(cfg, bus, nil, nil)
+	src, err := buildRuntimeToolSource(cfg, provider, store, bus, nil)
 	if err != nil {
 		return func() {}, err
 	}

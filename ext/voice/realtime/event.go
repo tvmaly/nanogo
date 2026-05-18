@@ -25,20 +25,21 @@ const (
 
 // Event is a provider-neutral, OpenAI Realtime-style event.
 type Event struct {
-	Type        string          `json:"type"`
-	SessionID   string          `json:"session_id,omitempty"`
-	ItemID      string          `json:"item_id,omitempty"`
-	ResponseID  string          `json:"response_id,omitempty"`
-	AudioBase64 string          `json:"audio,omitempty"`
-	Text        string          `json:"text,omitempty"`
-	Name        string          `json:"name,omitempty"`
-	ArgsJSON    json.RawMessage `json:"args_json,omitempty"`
-	Session     *SessionConfig  `json:"session,omitempty"`
-	Item        *Item           `json:"item,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	Provider    string          `json:"provider,omitempty"`
-	At          time.Time       `json:"at,omitempty"`
-	Raw         json.RawMessage `json:"raw,omitempty"`
+	SchemaVersion string          `json:"schema_version,omitempty"`
+	Type          string          `json:"type"`
+	SessionID     string          `json:"session_id,omitempty"`
+	ItemID        string          `json:"item_id,omitempty"`
+	ResponseID    string          `json:"response_id,omitempty"`
+	AudioBase64   string          `json:"audio,omitempty"`
+	Text          string          `json:"text,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	ArgsJSON      json.RawMessage `json:"args_json,omitempty"`
+	Session       *SessionConfig  `json:"session,omitempty"`
+	Item          *Item           `json:"item,omitempty"`
+	Error         string          `json:"error,omitempty"`
+	Provider      string          `json:"provider,omitempty"`
+	At            time.Time       `json:"at,omitempty"`
+	Raw           json.RawMessage `json:"raw,omitempty"`
 }
 
 // SessionConfig describes provider session settings.

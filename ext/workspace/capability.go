@@ -15,9 +15,10 @@ var validName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 // ToolManifest is the required metadata in workspace/tools/<name>/tool.yaml.
 type ToolManifest struct {
-	Name        string
-	Command     string
-	Description string
+	SchemaVersion string
+	Name          string
+	Command       string
+	Description   string
 }
 
 // ToolCapability is a validated workspace tool triplet.
@@ -68,7 +69,8 @@ func LoadTool(dir string) (ToolCapability, error) {
 	if err != nil {
 		return ToolCapability{}, err
 	}
-	if err := validateManifest(manifest); err != nil {
+	manifest, err = validateManifest(manifest)
+	if err != nil {
 		return ToolCapability{}, err
 	}
 	prompt, err := readRequired(filepath.Join(clean, "prompt.md"), "prompt.md")
@@ -99,6 +101,8 @@ func parseManifest(path string) (ToolManifest, error) {
 		}
 		value = strings.Trim(strings.TrimSpace(value), `"'`)
 		switch strings.TrimSpace(key) {
+		case "schema_version":
+			m.SchemaVersion = value
 		case "name":
 			m.Name = value
 		case "command":
@@ -112,23 +116,29 @@ func parseManifest(path string) (ToolManifest, error) {
 	return m, nil
 }
 
-func validateManifest(m ToolManifest) error {
+func validateManifest(m ToolManifest) (ToolManifest, error) {
+	if m.SchemaVersion == "" {
+		m.SchemaVersion = "workspace.tool.v1"
+	}
+	if m.SchemaVersion != "workspace.tool.v1" {
+		return ToolManifest{}, fmt.Errorf("tool.yaml.schema_version: unsupported %q", m.SchemaVersion)
+	}
 	if m.Name == "" {
-		return errors.New("tool.yaml.name: required")
+		return ToolManifest{}, errors.New("tool.yaml.name: required")
 	}
 	if !validName.MatchString(m.Name) {
-		return fmt.Errorf("tool.yaml.name: invalid %q", m.Name)
+		return ToolManifest{}, fmt.Errorf("tool.yaml.name: invalid %q", m.Name)
 	}
 	if strings.Contains(m.Name, "..") || strings.ContainsAny(m.Name, `/\`) {
-		return fmt.Errorf("tool.yaml.name: path traversal not allowed: %q", m.Name)
+		return ToolManifest{}, fmt.Errorf("tool.yaml.name: path traversal not allowed: %q", m.Name)
 	}
 	if m.Command == "" {
-		return errors.New("tool.yaml.command: required")
+		return ToolManifest{}, errors.New("tool.yaml.command: required")
 	}
 	if strings.Contains(m.Command, "..") {
-		return fmt.Errorf("tool.yaml.command: path traversal not allowed: %q", m.Command)
+		return ToolManifest{}, fmt.Errorf("tool.yaml.command: path traversal not allowed: %q", m.Command)
 	}
-	return nil
+	return m, nil
 }
 
 func readRequired(path, field string) (string, error) {

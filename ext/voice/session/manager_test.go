@@ -118,6 +118,25 @@ func TestVoiceSessionPersistence(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "memory", "voice", s.ID+"_events.jsonl")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(dir, "memory", "voice", s.ID+"_raw.jsonl")); err == nil {
+		t.Fatal("raw provider log should be opt-in")
+	}
+}
+
+func TestVoiceRawProviderPersistenceRequiresOptIn(t *testing.T) {
+	dir := t.TempDir()
+	adapter := fake.New(realtime.Event{Type: realtime.EventResponseTextDelta, Text: "ok", Raw: []byte(`{"secret":"provider payload"}`)})
+	mgr := NewManager(Config{Workspace: dir, Provider: adapter, PersistRawProviderEvents: true, SessionUpdate: realtime.Event{Type: realtime.EventSessionUpdate}})
+	s, err := mgr.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, _ := mgr.Events(s.ID)
+	select {
+	case <-events:
+	case <-time.After(time.Second):
+		t.Fatal("timed out")
+	}
 	if _, err := os.Stat(filepath.Join(dir, "memory", "voice", s.ID+"_raw.jsonl")); err != nil {
 		t.Fatal(err)
 	}

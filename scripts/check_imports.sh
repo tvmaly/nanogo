@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Enforce invariant #1: core/ must never import ext/, modules/, or pkg/
+# Enforce invariant #1: core/ must never import ext/, modules/, or pkg/.
+# Phase 17.5 also keeps modules/ independent from ext/.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,6 +14,14 @@ while IFS= read -r -d '' file; do
     FAIL=1
   fi
 done < <(find "$REPO_ROOT/core" -name "*.go" ! -name "*_test.go" -print0)
+
+while IFS= read -r -d '' file; do
+  if grep -qE "\"${MODULE}/ext/" "$file"; then
+    echo "VIOLATION: $file imports ext/" >&2
+    grep -nE "\"${MODULE}/ext/" "$file" >&2
+    FAIL=1
+  fi
+done < <(find "$REPO_ROOT/modules" -name "*.go" ! -name "*_test.go" -print0)
 
 if [ "$FAIL" -eq 1 ]; then
   echo "check_imports: FAILED" >&2

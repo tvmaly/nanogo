@@ -28,6 +28,34 @@ func TestLoadToolsValidatesTripletsDeterministically(t *testing.T) {
 	if !strings.Contains(tools[0].Prompt, "prompt") || !strings.Contains(tools[0].Tests, "cases") {
 		t.Fatalf("prompt/tests not loaded: %#v", tools[0])
 	}
+	if tools[0].Manifest.SchemaVersion != "workspace.tool.v1" {
+		t.Fatalf("schema version = %q, want workspace.tool.v1", tools[0].Manifest.SchemaVersion)
+	}
+}
+
+func TestLoadToolsAcceptsExplicitSchemaVersion(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTool(t, root, "alpha", "alpha", "echo a")
+	writeFile(t, filepath.Join(root, "tools", "alpha", "tool.yaml"), "schema_version: workspace.tool.v1\nname: alpha\ncommand: echo a\ndescription: test\n")
+	tools, err := workspace.LoadTools(root)
+	if err != nil {
+		t.Fatalf("LoadTools: %v", err)
+	}
+	if tools[0].Manifest.SchemaVersion != "workspace.tool.v1" {
+		t.Fatalf("schema version = %q", tools[0].Manifest.SchemaVersion)
+	}
+}
+
+func TestLoadToolsRejectsUnsupportedSchemaVersion(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTool(t, root, "alpha", "alpha", "echo a")
+	writeFile(t, filepath.Join(root, "tools", "alpha", "tool.yaml"), "schema_version: workspace.tool.v2\nname: alpha\ncommand: echo a\ndescription: test\n")
+	_, err := workspace.LoadTools(root)
+	if err == nil || !strings.Contains(err.Error(), "tool.yaml.schema_version") {
+		t.Fatalf("err = %v, want schema_version error", err)
+	}
 }
 
 func TestLoadToolsInvalidManifestFailsClearly(t *testing.T) {
