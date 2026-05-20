@@ -208,7 +208,7 @@ Current architecture split:
 
 | Directory | Role | Examples |
 |---|---|---|
-| `core/` | Tiny execution kernel and stable contracts used directly by the agent loop. | `agent`, `event`, `harness`, `llm`, `session`, `tools` |
+| `core/` | Tiny execution kernel and stable contracts used directly by the agent loop. | `agent`, `contracts`, `event`, `harness`, `llm`, `session`, `tools` |
 | `modules/` | Stable first-party runtime subsystems: shared contracts, registries, and default product behavior. | `modules/obs`, `modules/transport`, `modules/memory`, `modules/tools/builtin` |
 | `ext/` | Optional concrete adapters, providers, domains, and experiments that plug into core or module contracts. | `ext/obs/slog`, `ext/transport/rest`, `ext/scheduler/cron`, `ext/adaptive`, `ext/voice` |
 | `workspace/` | Editable data-first behavior and user/product assets. | `workspace/tools/...`, `workspace/skills/*.md`, `workspace/policies/*.md` |
@@ -223,6 +223,21 @@ Phase 17.5 closes runtime-wiring gaps that matter for Phase 18 AgentFlow tutor f
 - Configured transports use a shared `modules/transport.App` adapter over the existing agent loop, which reduces one-off CLI/REST/WebUI composition paths before adding `flow run`.
 - Voice sessions persist normalized events by default, while raw provider event logs require explicit opt-in, reducing privacy risk for child transcripts and provider payloads.
 - Adaptive archive records, voice event records, raw voice logs, and workspace tool manifests now include schema-version metadata to make evidence archives safer to inspect and migrate.
+
+Phase 18 v3 interface readiness adds a narrow `core/contracts` package for cross-cutting capability boundaries without moving product behavior into the kernel:
+
+- `core/contracts` defines small agent, subagent, tool runtime, pattern runtime, handoff, trace, and approval interfaces plus request/result shapes for Phase 18 v3 orchestration.
+- `core/tools.NewContractRuntime` adapts existing `core/tools.Source` values into the new tool catalog/invocation contracts while preserving the existing tool API.
+- `core/agent.SubagentRunner` now also satisfies the neutral subagent spawner contract, and builtin `spawn` keeps its existing compatibility behavior.
+- Voice provider adapters, including xAI realtime voice, remain in `ext/voice`; future voice orchestration can depend on `contracts.PatternRunner` or `contracts.HandoffTarget` at the bridge boundary.
+
+Phase 18 v3 adds a concrete contract-backed pattern runtime outside core:
+
+- `ext/agentpatterns.Runtime` implements `contracts.PatternRuntime` and keeps router, supervisor-worker, sequential, parallel, loop, review, handoff, and human-review behavior out of `core/contracts`.
+- Pattern execution uses injected `contracts.ToolRuntime`, `contracts.SubagentSpawner`, `contracts.TraceSink`, and `contracts.ApprovalGate`; tests use deterministic fakes by default.
+- Skills can opt into patterns with frontmatter such as `mode: agentpatterns`, `pattern: sequential`, and `pattern_manifest: fraction_lesson` without importing the concrete extension package.
+- Setting `"agent_patterns": {"enabled": true}` in config adds `pattern_run`, `pattern_status`, `pattern_resume`, and `pattern_list` to the tool source.
+- Pattern traces and checkpoints are extension-local JSONL surfaces; trace redaction is enabled in the concrete JSONL sink.
 
 ---
 
@@ -311,6 +326,8 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 15 | Realtime voice extension: xAI Grok Voice backend sessions, voice smoke CLI, optional local audio evaluation | Talk to the tutor through a backend voice session now, with browser microphone/speaker handling still cleanly separable for later phases | ✅ Complete |
 | 15.5 | Live hands-free voice loop: MacBook microphone capture, xAI realtime streaming, speaker playback | Talk to the tutor hands-free from the command line with raw audio kept private unless debug files are requested | ✅ Complete |
 | 17.5 | Phase 18 readiness hardening: spawn runtime wiring, configured transport app adapter, schema-versioned evidence, module import guard, raw voice log opt-in | Complex tutor flows can safely delegate, run through configured transports, and keep auditable evidence without exposing raw provider data by default | ✅ Complete |
+| 18 v3 interface prerequisite | Narrow `core/contracts` package plus tool and subagent adapters | AgentFlow-style runtimes can depend on stable kernel contracts for tools, subagents, handoff, traces, and approvals without importing concrete product extensions | ✅ Complete |
+| 18 v3 pattern runtime | Contract-backed `ext/agentpatterns` runtime, pattern tools, skill opt-in, voice bridge handoff, trace/checkpoint stores | Tutor workflows can route through single, router, supervisor-worker, sequential, parallel, loop, review, handoff, and human-review patterns without leaking extension code into core or modules | ✅ Complete |
 
 ---
 

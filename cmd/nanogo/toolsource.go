@@ -8,6 +8,8 @@ import (
 	"github.com/tvmaly/nanogo/core/event"
 	coreruntime "github.com/tvmaly/nanogo/core/runtime"
 	"github.com/tvmaly/nanogo/core/tools"
+	"github.com/tvmaly/nanogo/ext/agentpatterns"
+	patterntools "github.com/tvmaly/nanogo/ext/agentpatterns/tools"
 	"github.com/tvmaly/nanogo/ext/tools/progressive"
 	"github.com/tvmaly/nanogo/modules/tools/builtin"
 )
@@ -18,10 +20,25 @@ type progressiveSourceConfig struct {
 }
 
 func buildToolSourceFromConfig(cfg *config, bus event.Bus, coord builtin.AskUserCoord, runner tools.Runner) (tools.Source, error) {
+	var base tools.Source
+	var err error
 	if cfg == nil || len(cfg.Tools.Sources) == 0 {
-		return builtin.NewSource(bus, coord, runner), nil
+		base = builtin.NewSource(bus, coord, runner)
+	} else {
+		base, err = buildToolSources(cfg.Tools.Sources, bus, coord, runner)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return buildToolSources(cfg.Tools.Sources, bus, coord, runner)
+	if cfg != nil && cfg.AgentPatterns.Enabled {
+		rt := agentpatterns.New(agentpatterns.Config{
+			DefaultPattern: cfg.AgentPatterns.DefaultPattern,
+			RouterEnabled:  cfg.AgentPatterns.RouterEnabled,
+			ToolRuntime:    tools.NewContractRuntime(base),
+		})
+		return coreruntime.NewMultiSource(base, patterntools.NewSource(rt)), nil
+	}
+	return base, nil
 }
 
 func buildToolSources(entries []toolSourceConfig, bus event.Bus, coord builtin.AskUserCoord, runner tools.Runner) (tools.Source, error) {

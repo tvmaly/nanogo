@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync/atomic"
 
+	"github.com/tvmaly/nanogo/core/contracts"
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
 	"github.com/tvmaly/nanogo/core/session"
@@ -46,11 +47,32 @@ type SubagentRunner struct {
 	counter atomic.Int64
 }
 
+var _ contracts.SubagentSpawner = (*SubagentRunner)(nil)
+
 func NewSubagentRunner(cfg SubagentRunnerConfig) *SubagentRunner {
 	if cfg.Semaphore == nil {
 		cfg.Semaphore = NewSubagentSemaphore(4)
 	}
 	return &SubagentRunner{cfg: cfg}
+}
+
+func (r *SubagentRunner) SpawnSubagent(ctx context.Context, req contracts.SubagentRequest) (contracts.SubagentResult, error) {
+	if req.Budget.MaxDuration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, req.Budget.MaxDuration)
+		defer cancel()
+	}
+	result, err := r.RunSubagent(ctx, tools.SubagentOpts{
+		ParentSession: firstNonEmpty(req.ParentRunID, req.SessionID),
+		Goal:          req.Prompt,
+		Role:          req.Role,
+		Model:         req.Metadata["model"],
+		Tools:         req.AllowedTools,
+	})
+	if err != nil {
+		return contracts.SubagentResult{}, err
+	}
+	return contracts.SubagentResult{Text: result}, nil
 }
 
 func (r *SubagentRunner) RunSubagent(ctx context.Context, opts tools.SubagentOpts) (string, error) {
@@ -102,4 +124,13 @@ func (r *SubagentRunner) RunSubagent(ctx context.Context, opts tools.SubagentOpt
 		}
 	}
 	return "", nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

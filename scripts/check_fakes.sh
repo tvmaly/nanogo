@@ -8,6 +8,7 @@ FAIL=0
 # Packages in core/ that must have a fake/ sibling (add as they're implemented)
 REQUIRED=(
   "core/event"
+  "core/contracts"
   "core/llm"
   "core/tools"
   "core/session"

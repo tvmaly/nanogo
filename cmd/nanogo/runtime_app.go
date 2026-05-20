@@ -182,7 +182,7 @@ func (a *transportApp) TriggerSkill(ctx context.Context, name string, args map[s
 		return fmt.Errorf("transport skill trigger: %w", err)
 	}
 	runner := &cliSkillRunner{provider: a.cfg.Provider, store: a.cfg.Store, bus: a.cfg.Bus, model: a.cfg.Model, cfg: a.cfg.Cfg}
-	return skills.NewDispatcher(skills.NewLoader(sks), runner).Fire(ctx, skills.Trigger{
+	return buildSkillDispatcher(skills.NewLoader(sks), runner, a.cfg.Cfg).Fire(ctx, skills.Trigger{
 		Skill:  name,
 		Source: skills.SourceCLI,
 		Args:   args,

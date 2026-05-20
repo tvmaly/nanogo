@@ -37,9 +37,15 @@ type config struct {
 		Driver string          `json:"driver"`
 		Config json.RawMessage `json:"config"`
 	} `json:"scheduler"`
-	Heartbeats []heartbeat.Heartbeat `json:"heartbeats"`
-	Memory     json.RawMessage       `json:"memory"`
-	Evolve     json.RawMessage       `json:"evolve"`
+	Heartbeats    []heartbeat.Heartbeat `json:"heartbeats"`
+	Memory        json.RawMessage       `json:"memory"`
+	Evolve        json.RawMessage       `json:"evolve"`
+	AgentPatterns struct {
+		Enabled        bool   `json:"enabled"`
+		DefaultPattern string `json:"default_pattern"`
+		RouterEnabled  bool   `json:"router_enabled"`
+		TraceDir       string `json:"trace_dir"`
+	} `json:"agent_patterns"`
 }
 
 type driverConfig struct {

@@ -8,7 +8,7 @@ FAIL=0
 while IFS= read -r -d '' dir; do
   name="$(basename "$dir")"
   case "$name" in
-  agent|event|harness|llm|runtime|session|tools)
+  agent|contracts|event|harness|llm|runtime|session|tools)
     echo "  KERNEL  core/$name"
     continue
     ;;

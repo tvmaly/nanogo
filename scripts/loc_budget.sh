@@ -36,7 +36,8 @@ check() {
 }
 
 echo "Core LOC budget check:"
-check "core/agent"     500
+check "core/agent"     520
+check "core/contracts" 230
 check "core/tools"     400
 check "core/session"   180
 check "core/runtime"   120
@@ -45,7 +46,7 @@ check "core/harness"   120
 check "core/llm"       130
 check "core/config"    100
 check "modules/memory"    550
-check "modules/skills"    220
+check "modules/skills"    250
 check "modules/heartbeat" 120
 check "modules/obs"        70
 check "modules/transport"  60

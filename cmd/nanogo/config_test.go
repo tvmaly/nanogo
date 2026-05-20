@@ -136,7 +136,8 @@ func TestLoadConfigAcceptsDocumentedTopLevelSections(t *testing.T) {
 		"harness":{"sensors":[],"guides":[]},
 		"obs":[],
 		"memory":{"session_ttl_h":24},
-		"evolve":{"enabled":false}
+		"evolve":{"enabled":false},
+		"agent_patterns":{"enabled":true,"default_pattern":"single","router_enabled":true,"trace_dir":"/tmp/traces"}
 	}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
@@ -145,8 +146,31 @@ func TestLoadConfigAcceptsDocumentedTopLevelSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if cfg.LLM.Driver != "openai" || len(cfg.Transports) != 1 || cfg.Subagents.MaxConcurrent != 4 {
+	if cfg.LLM.Driver != "openai" || len(cfg.Transports) != 1 || cfg.Subagents.MaxConcurrent != 4 || !cfg.AgentPatterns.Enabled {
 		t.Fatalf("cfg = %#v", cfg)
+	}
+}
+
+func TestAgentPatternsConfigAddsPatternTools(t *testing.T) {
+	cfg := &config{}
+	cfg.AgentPatterns.Enabled = true
+	src, err := buildToolSourceFromConfig(cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := src.Tools(context.Background(), tools.TurnInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tool := range list {
+		if tool.Name() == "pattern_run" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("pattern_run not found in %d tools", len(list))
 	}
 }
 

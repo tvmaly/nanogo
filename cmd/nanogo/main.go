@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tvmaly/nanogo/core/agent"
+	"github.com/tvmaly/nanogo/core/contracts"
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
 	"github.com/tvmaly/nanogo/core/session"
@@ -20,6 +21,7 @@ import (
 	"github.com/tvmaly/nanogo/ext/adaptive/archive"
 	"github.com/tvmaly/nanogo/ext/adaptive/domains/lessonfactory"
 	"github.com/tvmaly/nanogo/ext/adaptive/reports"
+	"github.com/tvmaly/nanogo/ext/agentpatterns"
 	costobs "github.com/tvmaly/nanogo/ext/obs/cost"
 	"github.com/tvmaly/nanogo/modules/memory"
 	"github.com/tvmaly/nanogo/modules/skills"
@@ -529,6 +531,26 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
+func toolNames(specs []contracts.ToolSpec) []string {
+	names := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		names = append(names, spec.Name)
+	}
+	return names
+}
+
+func buildSkillDispatcher(loader *skills.Loader, runner *cliSkillRunner, cfg *config) skills.Dispatcher {
+	if cfg != nil && cfg.AgentPatterns.Enabled {
+		rt := agentpatterns.New(agentpatterns.Config{
+			AgentRunner:    runner,
+			DefaultPattern: cfg.AgentPatterns.DefaultPattern,
+			RouterEnabled:  cfg.AgentPatterns.RouterEnabled,
+		})
+		return skills.NewDispatcherWithPatterns(loader, runner, rt)
+	}
+	return skills.NewDispatcher(loader, runner)
+}
+
 func defaultSkillsDir() string {
 	home, _ := os.UserHomeDir()
 	return home + "/.nanogo/skills"
@@ -617,7 +639,7 @@ func skillRun(args []string, skillsDir string) error {
 	bus := event.NewBus()
 	store := session.NewStore(os.TempDir(), nil)
 	runner := &cliSkillRunner{provider: provider, store: store, bus: bus, model: cfg.modelForSource("cli"), cfg: cfg}
-	d := skills.NewDispatcher(loader, runner)
+	d := buildSkillDispatcher(loader, runner, cfg)
 
 	return d.Fire(context.Background(), skills.Trigger{
 		Skill:  name,
@@ -633,6 +655,16 @@ type cliSkillRunner struct {
 	bus      event.Bus
 	model    string
 	cfg      *config
+}
+
+var _ contracts.AgentRunner = (*cliSkillRunner)(nil)
+
+func (r *cliSkillRunner) RunAgent(ctx context.Context, req contracts.AgentRequest) (contracts.AgentResult, error) {
+	text, err := r.RunSkill(ctx, skills.RunSkillOpts{
+		UserMsg: req.Prompt, SkillName: firstNonEmpty(req.Metadata["skill_name"], "pattern"),
+		Model: firstNonEmpty(req.Metadata["model"], r.model), Tools: toolNames(req.Tools), Session: req.SessionID,
+	})
+	return contracts.AgentResult{Text: text, Metadata: req.Metadata}, err
 }
 
 func (r *cliSkillRunner) RunSkill(ctx context.Context, opts skills.RunSkillOpts) (string, error) {

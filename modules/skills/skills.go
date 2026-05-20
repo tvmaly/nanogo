@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/tvmaly/nanogo/core/contracts"
 	"gopkg.in/yaml.v3"
 )
 
@@ -201,12 +202,17 @@ func (l *Loader) UserFacing() []*Skill {
 }
 
 type dispatcher struct {
-	loader *Loader
-	runner AgentRunner
+	loader   *Loader
+	runner   AgentRunner
+	patterns contracts.PatternRunner
 }
 
 func NewDispatcher(loader *Loader, runner AgentRunner) Dispatcher {
 	return &dispatcher{loader: loader, runner: runner}
+}
+
+func NewDispatcherWithPatterns(loader *Loader, runner AgentRunner, patterns contracts.PatternRunner) Dispatcher {
+	return &dispatcher{loader: loader, runner: runner, patterns: patterns}
 }
 
 func (d *dispatcher) Fire(ctx context.Context, t Trigger) error {
@@ -230,12 +236,30 @@ func (d *dispatcher) Fire(ctx context.Context, t Trigger) error {
 	}
 	var note string
 	if len(missing) > 0 {
-		note = "The following required arguments are missing: " + strings.Join(missing, ", ") +
-			". Use the ask_user tool to gather each missing value before proceeding."
+		note = "The following required arguments are missing: " + strings.Join(missing, ", ") + ". Use the ask_user tool to gather each missing value before proceeding."
+	}
+	if d.patterns != nil && usesPattern(sk) {
+		_, err = d.patterns.RunPattern(ctx, contracts.PatternRequest{
+			SessionID: t.Session, Prompt: body, SkillName: sk.Name, PatternHint: frontmatterString(sk, "pattern"),
+			Context:  map[string]any{"args": args, "missing_args": missing},
+			Metadata: map[string]string{"mode": frontmatterString(sk, "mode"), "pattern_manifest": frontmatterString(sk, "pattern_manifest"), "model": sk.Model},
+		})
+		return err
 	}
 	_, err = d.runner.RunSkill(ctx, RunSkillOpts{
-		SystemNote: note, UserMsg: body, SkillName: sk.Name,
-		Model: sk.Model, Tools: sk.Tools, Session: t.Session,
+		SystemNote: note, UserMsg: body, SkillName: sk.Name, Model: sk.Model, Tools: sk.Tools, Session: t.Session,
 	})
 	return err
+}
+
+func usesPattern(sk *Skill) bool {
+	return frontmatterString(sk, "mode") == "agentpatterns" || frontmatterString(sk, "pattern") != ""
+}
+
+func frontmatterString(sk *Skill, key string) string {
+	if sk == nil || sk.Frontmatter == nil {
+		return ""
+	}
+	s, _ := sk.Frontmatter[key].(string)
+	return s
 }
