@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -15,15 +16,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tvmaly/nanogo/core/agent"
 	"github.com/tvmaly/nanogo/core/contracts"
 	contractfake "github.com/tvmaly/nanogo/core/contracts/fake"
+	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
+	"github.com/tvmaly/nanogo/core/session"
+	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/ext/voice/localaudio"
 	appleavspeech "github.com/tvmaly/nanogo/ext/voice/providers/apple/avspeech"
 	applespeechanalyzer "github.com/tvmaly/nanogo/ext/voice/providers/apple/speechanalyzer"
 	"github.com/tvmaly/nanogo/ext/voice/providers/xai"
 	"github.com/tvmaly/nanogo/ext/voice/realtime"
 	voicesession "github.com/tvmaly/nanogo/ext/voice/session"
+	"github.com/tvmaly/nanogo/modules/tools/builtin"
 	voice "github.com/tvmaly/nanogo/modules/voice"
 )
 
@@ -227,6 +233,9 @@ func runVoiceChatCmd(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := enableVoiceWebSearch(cfg); err != nil {
+		return err
+	}
 	provider, err := buildProvider(cfg)
 	if err != nil {
 		return err
@@ -253,11 +262,12 @@ func runVoiceChatCmd(args []string) error {
 	if *sttName == "apple" {
 		stt = debouncedSpeechToText{inner: stt, delay: 900 * time.Millisecond}
 	}
-	err = runVoiceChat(ctx, capture, playback, stt, registry.TTS[*ttsName], &llmVoiceAgent{
-		provider: provider,
-		model:    cfg.modelForSource("voice"),
-		out:      debugOut,
-	}, *locale, voiceChatOptions{DebugOut: debugOut, SavePlaybackPCM: *savePlayback})
+	err = runVoiceChat(ctx, capture, playback, stt, registry.TTS[*ttsName], newAgentVoiceGateway(agentVoiceGatewayConfig{
+		Cfg:      cfg,
+		Provider: provider,
+		Model:    cfg.modelForSource("voice"),
+		DebugOut: debugOut,
+	}), *locale, voiceChatOptions{DebugOut: debugOut, SavePlaybackPCM: *savePlayback})
 	if err == context.Canceled {
 		fmt.Println("voice chat stopped")
 		return nil
@@ -457,44 +467,302 @@ func (s *playbackTTSSink) Close(context.Context) error {
 	return s.playback.Close()
 }
 
-type llmVoiceAgent struct {
-	provider llm.Provider
-	model    string
-	out      io.Writer
-	mu       sync.Mutex
-	history  []llm.Message
+type agentVoiceGatewayConfig struct {
+	Cfg       *config
+	Provider  llm.Provider
+	Model     string
+	Store     session.Store
+	Bus       event.Bus
+	DebugOut  io.Writer
+	SessionID string
 }
 
-func (a *llmVoiceAgent) SubmitVoiceText(ctx context.Context, req voice.VoiceAgentRequest) (voice.VoiceAgentResult, error) {
-	if a.out != nil {
-		fmt.Fprintf(a.out, "voice chat stt final=%q\n", req.Text)
-	}
-	a.mu.Lock()
-	a.history = append(a.history, llm.Message{Role: "user", Content: req.Text})
-	msgs := append([]llm.Message{{Role: "system", Content: "You are a concise voice tutor. Keep spoken replies brief."}}, a.history...)
-	a.mu.Unlock()
+type agentVoiceGateway struct {
+	cfg      *config
+	provider llm.Provider
+	model    string
+	store    session.Store
+	bus      event.Bus
+	debug    io.Writer
+	id       string
 
-	ch, err := a.provider.Chat(ctx, llm.Request{Model: a.model, Messages: msgs, Stream: true})
+	mu    sync.Mutex
+	sess  session.Session
+	coord builtin.AskUserCoord
+}
+
+func newAgentVoiceGateway(cfg agentVoiceGatewayConfig) *agentVoiceGateway {
+	if cfg.Cfg == nil {
+		cfg.Cfg = &config{}
+	}
+	if cfg.Store == nil {
+		cfg.Store = session.NewStore(os.TempDir(), nil)
+	}
+	if cfg.Bus == nil {
+		cfg.Bus = event.NewBus()
+	}
+	if cfg.SessionID == "" {
+		cfg.SessionID = "voice-chat"
+	}
+	return &agentVoiceGateway{
+		cfg:      cfg.Cfg,
+		provider: cfg.Provider,
+		model:    cfg.Model,
+		store:    cfg.Store,
+		bus:      cfg.Bus,
+		debug:    cfg.DebugOut,
+		id:       cfg.SessionID,
+	}
+}
+
+func (g *agentVoiceGateway) SubmitVoiceText(ctx context.Context, req voice.VoiceAgentRequest) (voice.VoiceAgentResult, error) {
+	if g.debug != nil {
+		fmt.Fprintf(g.debug, "voice chat stt final=%q\n", req.Text)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err := g.ensureSession(); err != nil {
+		return voice.VoiceAgentResult{}, err
+	}
+	g.sess.Append(llm.Message{Role: "user", Content: req.Text})
+	src, err := g.source()
 	if err != nil {
 		return voice.VoiceAgentResult{}, err
 	}
-	var text strings.Builder
-	for chunk := range ch {
-		if chunk.Err != nil {
-			return voice.VoiceAgentResult{}, chunk.Err
-		}
-		text.WriteString(chunk.TextDelta)
+	evtCtx, cancelEvents := context.WithCancel(ctx)
+	events := g.bus.Subscribe(evtCtx, event.ToolCallStarted, event.TurnCompleted)
+	loop := agent.NewLoop(agent.Config{
+		Provider:   g.provider,
+		Source:     src,
+		Session:    g.sess,
+		Bus:        g.bus,
+		Model:      g.model,
+		SourceName: "voice",
+	})
+	err = loop.Run(ctx)
+	cancelEvents()
+	g.writeDebugEvents(events)
+	if err != nil {
+		return voice.VoiceAgentResult{}, err
 	}
-	reply := text.String()
-	a.mu.Lock()
-	a.history = append(a.history, llm.Message{Role: "assistant", Content: reply})
-	a.mu.Unlock()
-	if a.out != nil {
-		fmt.Fprintf(a.out, "voice chat agent reply=%q\n", reply)
+	reply := lastAssistantText(g.sess.Messages())
+	if g.debug != nil {
+		fmt.Fprintf(g.debug, "voice chat agent reply=%q\n", reply)
 	} else {
 		fmt.Println(reply)
 	}
 	return voice.VoiceAgentResult{Text: reply}, nil
+}
+
+func (g *agentVoiceGateway) writeDebugEvents(events <-chan event.Event) {
+	if g.debug == nil {
+		return
+	}
+	for evt := range events {
+		switch evt.Kind {
+		case event.ToolCallStarted:
+			if payload, ok := evt.Payload.(map[string]string); ok && payload["tool"] != "" {
+				fmt.Fprintf(g.debug, "voice chat tool call=%s\n", payload["tool"])
+			}
+		case event.TurnCompleted:
+			if payload, ok := evt.Payload.(event.TurnCompletedPayload); ok && len(payload.ServerToolUse) > 0 {
+				fmt.Fprintf(g.debug, "voice chat server tool use=%v\n", payload.ServerToolUse)
+			}
+		}
+	}
+}
+
+func (g *agentVoiceGateway) toolSource(ctx context.Context) ([]tools.Tool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err := g.ensureSession(); err != nil {
+		return nil, err
+	}
+	src, err := g.source()
+	if err != nil {
+		return nil, err
+	}
+	return src.Tools(ctx, tools.TurnInfo{Session: g.sess.ID(), Turn: len(g.sess.Messages())})
+}
+
+func (g *agentVoiceGateway) ensureSession() error {
+	if g.sess != nil {
+		return nil
+	}
+	sess, err := g.store.Create(g.id)
+	if err != nil {
+		return err
+	}
+	sess.Append(llm.Message{Role: "system", Content: voiceChatSystemNote})
+	g.sess = sess
+	g.coord = builtin.NewAskUserCoordinator(g.bus, sess.ID())
+	return nil
+}
+
+func (g *agentVoiceGateway) source() (tools.Source, error) {
+	src, err := buildRuntimeToolSource(g.cfg, g.provider, g.store, g.bus, g.coord)
+	if err != nil {
+		return nil, err
+	}
+	return withoutTools{inner: src, blocked: map[string]bool{"ask_user": true}}, nil
+}
+
+type withoutTools struct {
+	inner   tools.Source
+	blocked map[string]bool
+}
+
+func (s withoutTools) Tools(ctx context.Context, turn tools.TurnInfo) ([]tools.Tool, error) {
+	list, err := s.inner.Tools(ctx, turn)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tools.Tool, 0, len(list))
+	for _, tool := range list {
+		if s.blocked[tool.Name()] {
+			continue
+		}
+		out = append(out, tool)
+	}
+	return out, nil
+}
+
+func lastAssistantText(msgs []llm.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "assistant" {
+			return msgs[i].Content
+		}
+	}
+	return ""
+}
+
+const voiceChatSystemNote = `You are a concise voice tutor. Keep spoken replies brief.
+
+You are running inside nanogo voice chat with local nanogo tools and optional OpenRouter web search. If asked what tools are available, summarize the visible tool capabilities accurately.
+
+Use OpenRouter web search only when the user explicitly asks you to search, browse, look up, or find current/latest information, or when a correct answer requires current facts.`
+
+func enableVoiceWebSearch(cfg *config) error {
+	if cfg == nil {
+		return nil
+	}
+	tool, err := cfg.Voice.WebSearch.serverTool()
+	if err != nil {
+		return err
+	}
+	switch cfg.LLM.Driver {
+	case "openai":
+		raw, err := appendServerTool(cfg.LLM.Config, tool)
+		if err != nil {
+			return err
+		}
+		cfg.LLM.Config = raw
+	case "router":
+		raw, err := enableRouterVoiceWebSearch(cfg.LLM.Config, tool)
+		if err != nil {
+			return err
+		}
+		cfg.LLM.Config = raw
+	}
+	return nil
+}
+
+func (c voiceWebSearchConfig) serverTool() (json.RawMessage, error) {
+	engine := c.Engine
+	if engine == "" {
+		engine = "auto"
+	}
+	maxResults := c.MaxResults
+	if maxResults == 0 {
+		maxResults = 8
+	}
+	maxTotal := c.MaxTotalResults
+	if maxTotal == 0 {
+		maxTotal = 20
+	}
+	contextSize := c.SearchContextSize
+	if contextSize == "" {
+		contextSize = "medium"
+	}
+	params := map[string]any{
+		"engine":              engine,
+		"max_results":         maxResults,
+		"max_total_results":   maxTotal,
+		"search_context_size": contextSize,
+	}
+	if len(c.AllowedDomains) > 0 {
+		params["allowed_domains"] = append([]string(nil), c.AllowedDomains...)
+	}
+	if len(c.ExcludedDomains) > 0 {
+		params["excluded_domains"] = append([]string(nil), c.ExcludedDomains...)
+	}
+	return json.Marshal(map[string]any{
+		"type":       "openrouter:web_search",
+		"parameters": params,
+	})
+}
+
+func appendServerTool(raw json.RawMessage, tool json.RawMessage) (json.RawMessage, error) {
+	var cfg map[string]json.RawMessage
+	if len(raw) == 0 {
+		cfg = map[string]json.RawMessage{}
+	} else if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, err
+	}
+	var toolsRaw []json.RawMessage
+	if existing, ok := cfg["server_tools"]; ok && len(existing) > 0 {
+		if err := json.Unmarshal(existing, &toolsRaw); err != nil {
+			return nil, fmt.Errorf("decode server_tools: %w", err)
+		}
+	}
+	for _, existing := range toolsRaw {
+		if strings.Contains(string(existing), `"openrouter:web_search"`) {
+			return raw, nil
+		}
+	}
+	toolsRaw = append(toolsRaw, tool)
+	encoded, err := json.Marshal(toolsRaw)
+	if err != nil {
+		return nil, err
+	}
+	cfg["server_tools"] = encoded
+	return json.Marshal(cfg)
+}
+
+func enableRouterVoiceWebSearch(raw json.RawMessage, tool json.RawMessage) (json.RawMessage, error) {
+	var rc struct {
+		Providers map[string]struct {
+			Driver string          `json:"driver"`
+			Config json.RawMessage `json:"config"`
+		} `json:"providers"`
+		Rules    []llm.Rule `json:"rules"`
+		Fallback string     `json:"fallback"`
+	}
+	if err := json.Unmarshal(raw, &rc); err != nil {
+		return nil, err
+	}
+	routes := map[string]bool{}
+	for _, rule := range rc.Rules {
+		if rule.When == "source=voice" || rule.When == "default" {
+			routes[rule.Route] = true
+		}
+	}
+	if len(routes) == 0 && rc.Fallback != "" {
+		routes[rc.Fallback] = true
+	}
+	for route := range routes {
+		entry, ok := rc.Providers[route]
+		if !ok || entry.Driver != "openai" {
+			continue
+		}
+		next, err := appendServerTool(entry.Config, tool)
+		if err != nil {
+			return nil, fmt.Errorf("router provider %q voice web search: %w", route, err)
+		}
+		entry.Config = next
+		rc.Providers[route] = entry
+	}
+	return json.Marshal(rc)
 }
 
 func runVoiceSmoke(args []string, workspace string) error {

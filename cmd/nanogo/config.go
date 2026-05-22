@@ -81,6 +81,7 @@ type voiceConfig struct {
 		PersistPartialTranscripts bool `json:"persist_partial_transcripts"`
 		RedactTranscriptsInEvents bool `json:"redact_transcripts_in_events"`
 	} `json:"privacy"`
+	WebSearch voiceWebSearchConfig `json:"web_search"`
 }
 
 type voiceProviderConfig struct {
@@ -88,6 +89,15 @@ type voiceProviderConfig struct {
 	Config json.RawMessage `json:"config,omitempty"`
 	Model  string          `json:"model,omitempty"`
 	Voice  string          `json:"voice,omitempty"`
+}
+
+type voiceWebSearchConfig struct {
+	Engine            string   `json:"engine,omitempty"`
+	MaxResults        int      `json:"max_results,omitempty"`
+	MaxTotalResults   int      `json:"max_total_results,omitempty"`
+	SearchContextSize string   `json:"search_context_size,omitempty"`
+	AllowedDomains    []string `json:"allowed_domains,omitempty"`
+	ExcludedDomains   []string `json:"excluded_domains,omitempty"`
 }
 
 // defaultConfigPath is the path tried when no --config flag is given.

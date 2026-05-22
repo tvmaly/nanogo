@@ -228,6 +228,36 @@ Direct CLI form:
 
 This path uses local microphone capture, Apple speech-to-text, the configured OpenRouter-backed nanogo agent, Apple text-to-speech, and local speaker playback. Raw microphone and speaker PCM are not persisted by default.
 
+Phase 19.6 routes voice chat through the full nanogo agent loop, so voice turns can use the same configured tools as text turns. `ask_user` is intentionally hidden in voice chat until nanogo has a voice-native ask/answer flow.
+
+OpenRouter web search is available in voice chat by default as a provider-side server tool. The voice system prompt tells the model to use search only when you explicitly ask it to search, browse, look up information, or answer current/latest factual questions.
+
+Advanced web search settings can be configured:
+
+```json
+{
+  "voice": {
+    "web_search": {
+      "engine": "auto",
+      "max_results": 8,
+      "max_total_results": 20,
+      "search_context_size": "medium",
+      "allowed_domains": ["arxiv.org", "nature.com"],
+      "excluded_domains": ["reddit.com"]
+    }
+  }
+}
+```
+
+Useful live prompts:
+
+```text
+What tools do you have available in this voice session?
+Use a tool to list the files in this repository root, then summarize what you found.
+Search the web for the latest OpenAI model news and summarize the top results.
+Explain magnets to a 10-year-old without searching the web.
+```
+
 ---
 
 ## Workspace contracts and local verification
