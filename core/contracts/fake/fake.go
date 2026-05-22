@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"sync"
 
 	"github.com/tvmaly/nanogo/core/contracts"
 )
@@ -17,6 +18,8 @@ var _ contracts.HandoffTarget = (*PatternRuntime)(nil)
 var _ contracts.PatternRuntime = (*PatternRuntime)(nil)
 var _ contracts.TraceSink = (*TraceSink)(nil)
 var _ contracts.ApprovalGate = (*ApprovalGate)(nil)
+var _ contracts.SpeechToText = (*SpeechToText)(nil)
+var _ contracts.TextToSpeech = (*TextToSpeech)(nil)
 
 type AgentRunner struct {
 	Requests []contracts.AgentRequest
@@ -108,4 +111,143 @@ type ApprovalGate struct {
 func (g *ApprovalGate) RequestApproval(_ context.Context, req contracts.ApprovalRequest) (contracts.ApprovalResult, error) {
 	g.Requests = append(g.Requests, req)
 	return g.Result, g.Err
+}
+
+type SpeechToText struct {
+	CapabilitiesResult contracts.STTCapabilities
+	OpenErr            error
+	Sessions           []*STTSession
+	events             []contracts.TranscriptEvent
+}
+
+func NewSpeechToText(events ...contracts.TranscriptEvent) *SpeechToText {
+	return &SpeechToText{
+		CapabilitiesResult: contracts.STTCapabilities{
+			Provider:        "fake",
+			Local:           true,
+			Streaming:       true,
+			OfflineFiles:    true,
+			SupportsPartial: true,
+			SupportsTiming:  true,
+		},
+		events: append([]contracts.TranscriptEvent(nil), events...),
+	}
+}
+
+func (s *SpeechToText) Capabilities(context.Context) (contracts.STTCapabilities, error) {
+	return s.CapabilitiesResult, nil
+}
+
+func (s *SpeechToText) OpenSTTSession(_ context.Context, opts contracts.STTOptions) (contracts.STTSession, error) {
+	if s.OpenErr != nil {
+		return nil, s.OpenErr
+	}
+	sess := &STTSession{
+		SessionID: opts.SessionID,
+		events:    append([]contracts.TranscriptEvent(nil), s.events...),
+		out:       make(chan contracts.TranscriptEvent, len(s.events)),
+	}
+	s.Sessions = append(s.Sessions, sess)
+	return sess, nil
+}
+
+type STTSession struct {
+	SessionID string
+	Frames    []contracts.AudioFrame
+	CloseErr  error
+
+	mu     sync.Mutex
+	events []contracts.TranscriptEvent
+	out    chan contracts.TranscriptEvent
+	next   int
+	closed bool
+}
+
+func (s *STTSession) WriteAudio(_ context.Context, frame contracts.AudioFrame) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Frames = append(s.Frames, frame)
+	if s.next < len(s.events) {
+		event := s.events[s.next]
+		if event.SessionID == "" {
+			event.SessionID = s.SessionID
+		}
+		if event.Sequence == 0 {
+			event.Sequence = int64(s.next + 1)
+		}
+		s.out <- event
+		s.next++
+	}
+	return nil
+}
+
+func (s *STTSession) Events() <-chan contracts.TranscriptEvent { return s.out }
+
+func (s *STTSession) Close(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return s.CloseErr
+	}
+	s.closed = true
+	close(s.out)
+	return s.CloseErr
+}
+
+type TextToSpeech struct {
+	CapabilitiesResult contracts.TTSCapabilities
+	Requests           []contracts.SynthesisRequest
+	Streams            []*TTSStream
+	SynthesizeErr      error
+}
+
+func NewTextToSpeech() *TextToSpeech {
+	return &TextToSpeech{
+		CapabilitiesResult: contracts.TTSCapabilities{
+			Provider:  "fake",
+			Local:     true,
+			Streaming: true,
+			OutputFormats: []contracts.AudioFormat{{
+				Encoding:     contracts.AudioEncodingPCM16,
+				SampleRateHz: 24000,
+				Channels:     1,
+			}},
+		},
+	}
+}
+
+func (t *TextToSpeech) Capabilities(context.Context) (contracts.TTSCapabilities, error) {
+	return t.CapabilitiesResult, nil
+}
+
+func (t *TextToSpeech) Synthesize(_ context.Context, req contracts.SynthesisRequest) (contracts.TTSStream, error) {
+	if t.SynthesizeErr != nil {
+		return nil, t.SynthesizeErr
+	}
+	t.Requests = append(t.Requests, req)
+	stream := &TTSStream{events: make(chan contracts.TTSEvent, 3)}
+	format := req.Options.OutputFormat
+	if format.Encoding == "" {
+		format = contracts.AudioFormat{Encoding: contracts.AudioEncodingPCM16, SampleRateHz: 24000, Channels: 1}
+	}
+	stream.events <- contracts.TTSEvent{SessionID: req.SessionID, Kind: contracts.TTSEventStarted, Format: format, Sequence: 1}
+	stream.events <- contracts.TTSEvent{SessionID: req.SessionID, Kind: contracts.TTSEventAudio, Format: format, PCM: []byte(req.Text), Sequence: 2}
+	stream.events <- contracts.TTSEvent{SessionID: req.SessionID, Kind: contracts.TTSEventDone, Format: format, Sequence: 3}
+	t.Streams = append(t.Streams, stream)
+	return stream, nil
+}
+
+type TTSStream struct {
+	events chan contracts.TTSEvent
+	Closed bool
+}
+
+func (s *TTSStream) Events() <-chan contracts.TTSEvent { return s.events }
+
+func (s *TTSStream) Close(context.Context) error {
+	if !s.Closed {
+		s.Closed = true
+		close(s.events)
+	}
+	return nil
 }

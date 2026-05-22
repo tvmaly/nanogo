@@ -10,7 +10,8 @@ SKILLS_DIR  := $(CURDIR)/testdata/skills
 .PHONY: all build build-malgo verify-local check-env write-config write-config-obs test \
 	test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 \
 	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24 test-14.27 \
-	test-15.17 test-15.18 test-15.19 test-15.5.8 voice-live voice-live-debug
+	test-15.17 test-15.18 test-15.19 test-15.5.8 voice-live voice-live-debug \
+	test-19.apple-tts test-19.apple-stt apple-voice-helpers test-19.5.apple-voice-chat
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,9 @@ build:
 build-malgo:
 	go build -tags malgo -o $(BINARY) ./cmd/nanogo
 	@echo "Built with malgo: $(BINARY)"
+
+apple-voice-helpers:
+	@bash scripts/build_apple_voice_helpers.sh
 
 verify-local:
 	GOCACHE=/tmp/go-cache go build -o $(BINARY) ./cmd/nanogo
@@ -263,6 +267,30 @@ voice-live-debug: build-malgo check-xai-env
 	@$(BINARY) --workspace $(WORKSPACE) voice live --provider xai --child cross \
 		--save-capture-pcm $(WORKSPACE)/voice/capture.pcm \
 		--save-playback-pcm $(WORKSPACE)/voice/playback.pcm
+
+# TEST-19.apple-tts — manual Apple AVSpeech TTS provider smoke
+test-19.apple-tts: build
+	@echo ""; echo "=== TEST-19.apple-tts: Apple AVSpeech TTS smoke ==="
+	@echo "Requires macOS Apple speech support and local audio output."
+	@$(BINARY) --workspace $(WORKSPACE) voice tts --provider apple \
+		--voice com.apple.voice.compact.en-US.Samantha \
+		--text "Hello from nanogo Phase 19 voice." \
+		&& echo "PASS: Apple AVSpeech TTS smoke" \
+		|| (echo "FAIL: Apple AVSpeech TTS smoke"; exit 1)
+
+# TEST-19.apple-stt — manual Apple SpeechAnalyzer STT provider smoke
+test-19.apple-stt: build
+	@echo ""; echo "=== TEST-19.apple-stt: Apple SpeechAnalyzer STT smoke ==="
+	@echo "Requires macOS SpeechAnalyzer support and microphone permission."
+	@$(BINARY) --workspace $(WORKSPACE) voice stt --provider apple --locale en-US --input mic --once \
+		&& echo "PASS: Apple SpeechAnalyzer STT smoke" \
+		|| (echo "FAIL: Apple SpeechAnalyzer STT smoke"; exit 1)
+
+# TEST-19.5.apple-voice-chat — manual Apple STT/TTS chat path
+test-19.5.apple-voice-chat: build-malgo apple-voice-helpers check-env
+	@echo ""; echo "=== TEST-19.5.apple-voice-chat: Apple STT/TTS voice chat ==="
+	@echo "Requires macOS 26+, microphone permission, speaker output, Apple speech assets, and OPENROUTER_API_KEY."
+	@$(BINARY) --workspace $(WORKSPACE) voice chat --stt apple --tts apple --locale en-US
 
 # ── Run all manual tests in phase order ───────────────────────────────────────
 

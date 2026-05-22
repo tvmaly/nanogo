@@ -137,7 +137,15 @@ func TestLoadConfigAcceptsDocumentedTopLevelSections(t *testing.T) {
 		"obs":[],
 		"memory":{"session_ttl_h":24},
 		"evolve":{"enabled":false},
-		"agent_patterns":{"enabled":true,"default_pattern":"single","router_enabled":true,"trace_dir":"/tmp/traces"}
+		"agent_patterns":{"enabled":true,"default_pattern":"single","router_enabled":true,"trace_dir":"/tmp/traces"},
+		"voice":{
+			"enabled":true,
+			"default_locale":"en-US",
+			"stt":{"default_provider":"fake","providers":{"fake":{"driver":"fake"}}},
+			"tts":{"default_provider":"fake","providers":{"fake":{"driver":"fake"}}},
+			"websocket":{"enabled":true,"path":"/voice/ws"},
+			"privacy":{"persist_audio":false,"persist_partial_transcripts":false}
+		}
 	}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
@@ -148,6 +156,36 @@ func TestLoadConfigAcceptsDocumentedTopLevelSections(t *testing.T) {
 	}
 	if cfg.LLM.Driver != "openai" || len(cfg.Transports) != 1 || cfg.Subagents.MaxConcurrent != 4 || !cfg.AgentPatterns.Enabled {
 		t.Fatalf("cfg = %#v", cfg)
+	}
+}
+
+func TestVoiceConfigValidatesProviderReferencesAndUnknownFields(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw := `{
+		"llm":{"driver":"openai","config":{}},
+		"voice":{
+			"enabled":true,
+			"stt":{"default_provider":"missing","providers":{"fake":{"driver":"fake"}}},
+			"tts":{"default_provider":"fake","providers":{"fake":{"driver":"fake"}}}
+		}
+	}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "voice.stt.default_provider") {
+		t.Fatalf("err = %v, want voice stt provider error", err)
+	}
+
+	path = filepath.Join(t.TempDir(), "config.json")
+	raw = `{"llm":{"driver":"openai","config":{}},"voice":{"enabled":true,"surprise":true}}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = loadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("err = %v, want unknown field", err)
 	}
 }
 

@@ -27,7 +27,9 @@ nanogo is different:
 - **Remembers your child** — it builds a persistent memory of what your child knows, struggles with, and enjoys
 - **Runs on your computer** — your family's data stays with you
 - **Fully customizable** — create lessons, quizzes, and study plans by writing simple text files
-- **Voice mode** — Phase 15 adds a backend xAI Grok Voice session layer for talking to the tutor before the full web UI voice experience is built
+- **Voice mode** — Phase 19 adds contract-backed speech-to-text and text-to-speech so a child can speak to the tutor and hear responses when a voice provider is configured
+
+For parents, Phase 19 voice support matters because it makes tutoring less like typing into a chatbot and more like working with a patient adult helper. Younger learners can answer out loud before they type confidently, parents can turn listening or speaking on and off during a session, and raw microphone audio is not persisted by default.
 
 ---
 
@@ -178,6 +180,53 @@ This means the tutor genuinely remembers across days and weeks:
 - What you worked on in the last session
 
 Everything is stored as plain text files in `~/.nanogo/workspace/` on your own machine — you can read and edit them any time.
+
+---
+
+## Phase 19 voice support
+
+Phase 19 separates voice into stable contracts and optional providers:
+
+- `core/contracts` defines speech-to-text and text-to-speech interfaces, audio formats, transcript events, and TTS stream events.
+- `modules/voice` owns the reusable voice session controller, final-transcript routing, automatic speaking, `voice_say`, and runtime STT/TTS toggles.
+- `ext/voice/providers/apple` contains Apple SpeechAnalyzer and AVSpeech provider entry points, kept outside the kernel.
+- CLI commands include `nanogo voice providers`, `nanogo voice stt`, `nanogo voice tts`, and `nanogo voice chat`.
+
+Runtime voice state is session-scoped. A future web interface can use the same control path as the CLI to turn listening or speaking on and off without starting a new tutoring session.
+
+Manual Apple smoke targets:
+
+```bash
+make apple-voice-helpers
+make test-19.apple-tts
+make test-19.apple-stt
+```
+
+These require macOS voice capabilities and local microphone/speaker permissions. Deterministic Go tests use fakes and do not require real voice providers.
+
+Phase 19.5 replaces the Apple placeholders with optional Swift helper binaries. The Go providers talk to those helpers over JSONL stdio, so ordinary Go builds and tests remain portable and do not require Swift, macOS, a microphone, a speaker, or Apple speech assets.
+
+To build the helpers on a supported Mac:
+
+```bash
+make apple-voice-helpers
+```
+
+The helper build skips on non-Mac systems. On macOS it requires `swiftc` and a macOS SDK 26+ because the STT helper uses Apple's `SpeechAnalyzer`, `SpeechTranscriber`, and `AssetInventory` APIs. Helper paths can be overridden with `NANOGO_APPLE_AVSPEECH_HELPER` and `NANOGO_APPLE_SPEECHANALYZER_HELPER`.
+
+Live Apple STT/TTS chat:
+
+```bash
+make test-19.5.apple-voice-chat
+```
+
+Direct CLI form:
+
+```bash
+./nanogo voice chat --stt apple --tts apple --locale en-US
+```
+
+This path uses local microphone capture, Apple speech-to-text, the configured OpenRouter-backed nanogo agent, Apple text-to-speech, and local speaker playback. Raw microphone and speaker PCM are not persisted by default.
 
 ---
 

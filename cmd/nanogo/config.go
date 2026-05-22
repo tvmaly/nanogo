@@ -46,6 +46,7 @@ type config struct {
 		RouterEnabled  bool   `json:"router_enabled"`
 		TraceDir       string `json:"trace_dir"`
 	} `json:"agent_patterns"`
+	Voice voiceConfig `json:"voice"`
 }
 
 type driverConfig struct {
@@ -56,6 +57,37 @@ type driverConfig struct {
 type toolSourceConfig struct {
 	Driver string          `json:"driver"`
 	Config json.RawMessage `json:"config"`
+}
+
+type voiceConfig struct {
+	Enabled       bool   `json:"enabled"`
+	DefaultLocale string `json:"default_locale"`
+	STT           struct {
+		DefaultProvider string                         `json:"default_provider"`
+		Providers       map[string]voiceProviderConfig `json:"providers"`
+	} `json:"stt"`
+	TTS struct {
+		DefaultProvider string                         `json:"default_provider"`
+		Providers       map[string]voiceProviderConfig `json:"providers"`
+	} `json:"tts"`
+	WebSocket struct {
+		Enabled      bool            `json:"enabled"`
+		Path         string          `json:"path"`
+		InputFormat  json.RawMessage `json:"input_format"`
+		OutputFormat json.RawMessage `json:"output_format"`
+	} `json:"websocket"`
+	Privacy struct {
+		PersistAudio              bool `json:"persist_audio"`
+		PersistPartialTranscripts bool `json:"persist_partial_transcripts"`
+		RedactTranscriptsInEvents bool `json:"redact_transcripts_in_events"`
+	} `json:"privacy"`
+}
+
+type voiceProviderConfig struct {
+	Driver string          `json:"driver"`
+	Config json.RawMessage `json:"config,omitempty"`
+	Model  string          `json:"model,omitempty"`
+	Voice  string          `json:"voice,omitempty"`
 }
 
 // defaultConfigPath is the path tried when no --config flag is given.
@@ -127,6 +159,26 @@ func (c *config) validate() error {
 	if c.Scheduler.Driver != "" && c.Scheduler.Driver != "stdlib" {
 		if _, err := scheduler.Build(c.Scheduler.Driver, c.Scheduler.Config); err != nil {
 			return fmt.Errorf("scheduler.driver: %w", err)
+		}
+	}
+	if err := c.validateVoice(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *config) validateVoice() error {
+	if !c.Voice.Enabled && c.Voice.STT.DefaultProvider == "" && c.Voice.TTS.DefaultProvider == "" {
+		return nil
+	}
+	if c.Voice.STT.DefaultProvider != "" {
+		if _, ok := c.Voice.STT.Providers[c.Voice.STT.DefaultProvider]; !ok {
+			return fmt.Errorf("voice.stt.default_provider: provider %q is not configured", c.Voice.STT.DefaultProvider)
+		}
+	}
+	if c.Voice.TTS.DefaultProvider != "" {
+		if _, ok := c.Voice.TTS.Providers[c.Voice.TTS.DefaultProvider]; !ok {
+			return fmt.Errorf("voice.tts.default_provider: provider %q is not configured", c.Voice.TTS.DefaultProvider)
 		}
 	}
 	return nil
