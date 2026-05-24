@@ -101,6 +101,51 @@ func reserved(method string) bool {
 
 type SourceFactory func(context.Context, string) (tools.Source, error)
 
+type ModelInfo struct {
+	ID      string         `json:"id"`
+	Name    string         `json:"name,omitempty"`
+	Context int            `json:"context,omitempty"`
+	Pricing map[string]any `json:"pricing,omitempty"`
+}
+
+type ModelCatalog interface {
+	ListModels(context.Context) ([]ModelInfo, error)
+}
+
+type ModelState struct {
+	Session string `json:"session,omitempty"`
+	Model   string `json:"model"`
+}
+
+type VoiceState struct {
+	Session    string `json:"session,omitempty"`
+	STTEnabled bool   `json:"stt_enabled"`
+	TTSEnabled bool   `json:"tts_enabled"`
+}
+
+type VoicePatch struct {
+	STTEnabled *bool `json:"stt_enabled,omitempty"`
+	TTSEnabled *bool `json:"tts_enabled,omitempty"`
+}
+
+type VoiceController interface {
+	State(context.Context, string) (VoiceState, error)
+	Update(context.Context, string, VoicePatch) (VoiceState, error)
+}
+
+type RealtimeVoiceState struct {
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Connected bool   `json:"connected"`
+}
+
+type RealtimeVoiceController interface {
+	Start(context.Context) (RealtimeVoiceState, error)
+	Stop(context.Context) (RealtimeVoiceState, error)
+	Status(context.Context) (RealtimeVoiceState, error)
+}
+
 type Config struct {
 	Provider      llm.Provider
 	Store         session.Store
@@ -112,14 +157,20 @@ type Config struct {
 	SkillRunner   skills.AgentRunner
 	CostPath      string
 	Now           func() time.Time
+	ModelCatalog  ModelCatalog
+	Voice         VoiceController
+	RealtimeVoice RealtimeVoiceController
 }
 
 type Service struct {
 	cfg      Config
 	registry *Registry
 
-	mu       sync.Mutex
-	sessions map[string]session.Session
+	mu           sync.Mutex
+	sessions     map[string]session.Session
+	models       map[string]string
+	modelCache   []ModelInfo
+	modelCacheAt time.Time
 }
 
 func New(cfg Config) *Service {
@@ -129,7 +180,7 @@ func New(cfg Config) *Service {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	s := &Service{cfg: cfg, registry: NewRegistry(), sessions: map[string]session.Session{}}
+	s := &Service{cfg: cfg, registry: NewRegistry(), sessions: map[string]session.Session{}, models: map[string]string{}}
 	s.registerBuiltins()
 	return s
 }
@@ -158,6 +209,61 @@ func (s *Service) Status() Status {
 	n := len(s.sessions)
 	s.mu.Unlock()
 	return Status{OK: true, Model: s.cfg.Model, Methods: methods, Sessions: n}
+}
+
+func (s *Service) CurrentModel(sessionID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sessionID != "" {
+		if model := s.models[sessionID]; model != "" {
+			return model
+		}
+	}
+	return s.cfg.Model
+}
+
+func (s *Service) SetSessionModel(sessionID, model string) error {
+	if strings.TrimSpace(model) == "" {
+		return E(CodeInvalidRequest, "model is required")
+	}
+	if sessionID == "" {
+		sessionID = "tui"
+	}
+	s.mu.Lock()
+	s.models[sessionID] = model
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Service) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	if s.cfg.ModelCatalog == nil {
+		return nil, E(CodeUnsupported, "model catalog is not configured")
+	}
+	now := s.cfg.Now()
+	s.mu.Lock()
+	if !s.modelCacheAt.IsZero() && now.Sub(s.modelCacheAt) < 24*time.Hour {
+		out := append([]ModelInfo(nil), s.modelCache...)
+		s.mu.Unlock()
+		return out, nil
+	}
+	s.mu.Unlock()
+	models, err := s.cfg.ModelCatalog.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	s.modelCache = append([]ModelInfo(nil), models...)
+	s.modelCacheAt = now
+	out := append([]ModelInfo(nil), s.modelCache...)
+	s.mu.Unlock()
+	return out, nil
+}
+
+func (s *Service) FlushModelCache() {
+	s.mu.Lock()
+	s.modelCache = nil
+	s.modelCacheAt = time.Time{}
+	s.mu.Unlock()
 }
 
 type ChatRequest struct {
@@ -198,7 +304,7 @@ func (s *Service) SubmitChat(ctx context.Context, req ChatRequest) (ChatResponse
 			Source:     src,
 			Session:    sess,
 			Bus:        s.cfg.Bus,
-			Model:      s.cfg.Model,
+			Model:      s.CurrentModel(req.Session),
 			SourceName: "gateway",
 		}).Run(ctx)
 	}()
@@ -269,7 +375,7 @@ func (s *Service) StreamChat(ctx context.Context, req ChatRequest) (<-chan Strea
 		defer close(out)
 		done := make(chan error, 1)
 		go func() {
-			done <- agent.NewLoop(agent.Config{Provider: s.cfg.Provider, Source: src, Session: sess, Bus: s.cfg.Bus, Model: s.cfg.Model, SourceName: "gateway"}).Run(ctx)
+			done <- agent.NewLoop(agent.Config{Provider: s.cfg.Provider, Source: src, Session: sess, Bus: s.cfg.Bus, Model: s.CurrentModel(req.Session), SourceName: "gateway"}).Run(ctx)
 		}()
 		var b strings.Builder
 		for {
@@ -340,6 +446,24 @@ func (s *Service) GetSession(id string, includeMessages bool) (SessionInfo, erro
 		info.Messages = sess.Messages()
 	}
 	return info, nil
+}
+
+func (s *Service) ListSessions() []SessionInfo {
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.sessions))
+	for id := range s.sessions {
+		ids = append(ids, id)
+	}
+	s.mu.Unlock()
+	sort.Strings(ids)
+	out := make([]SessionInfo, 0, len(ids))
+	for _, id := range ids {
+		info, err := s.GetSession(id, false)
+		if err == nil {
+			out = append(out, info)
+		}
+	}
+	return out
 }
 
 func (s *Service) DeleteSession(id string) error {
@@ -589,6 +713,9 @@ func (s *Service) registerBuiltins() {
 		}
 		return s.GetSession(req.ID, true)
 	})
+	s.registry.Register("sessions.list", func(context.Context, json.RawMessage) (any, error) {
+		return s.ListSessions(), nil
+	})
 	s.registry.Register("sessions.delete", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var req struct {
 			ID string `json:"id"`
@@ -632,6 +759,82 @@ func (s *Service) registerBuiltins() {
 		}
 		_ = json.Unmarshal(raw, &req)
 		return s.CostSummary(req.Session)
+	})
+	s.registry.Register("models.current", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var req struct {
+			Session string `json:"session"`
+		}
+		_ = json.Unmarshal(raw, &req)
+		return ModelState{Session: req.Session, Model: s.CurrentModel(req.Session)}, nil
+	})
+	s.registry.Register("models.use", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var req struct {
+			Session string `json:"session"`
+			Model   string `json:"model"`
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return nil, E(CodeInvalidRequest, err.Error())
+		}
+		if err := s.SetSessionModel(req.Session, req.Model); err != nil {
+			return nil, err
+		}
+		return ModelState{Session: req.Session, Model: s.CurrentModel(req.Session)}, nil
+	})
+	s.registry.Register("models.list", func(ctx context.Context, _ json.RawMessage) (any, error) {
+		return s.ListModels(ctx)
+	})
+	s.registry.Register("models.flush", func(context.Context, json.RawMessage) (any, error) {
+		s.FlushModelCache()
+		return map[string]bool{"flushed": true}, nil
+	})
+	s.registry.Register("voice.state", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if s.cfg.Voice == nil {
+			return nil, E(CodeUnsupported, "voice controller is not configured")
+		}
+		var req struct {
+			Session string `json:"session"`
+		}
+		_ = json.Unmarshal(raw, &req)
+		state, err := s.cfg.Voice.State(ctx, req.Session)
+		if err != nil {
+			return nil, E(CodeUnsupported, err.Error())
+		}
+		return state, nil
+	})
+	s.registry.Register("voice.update", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if s.cfg.Voice == nil {
+			return nil, E(CodeUnsupported, "voice controller is not configured")
+		}
+		var req struct {
+			Session string `json:"session"`
+			VoicePatch
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return nil, E(CodeInvalidRequest, err.Error())
+		}
+		state, err := s.cfg.Voice.Update(ctx, req.Session, req.VoicePatch)
+		if err != nil {
+			return nil, E(CodeUnsupported, err.Error())
+		}
+		return state, nil
+	})
+	s.registry.Register("xai.start", func(ctx context.Context, _ json.RawMessage) (any, error) {
+		if s.cfg.RealtimeVoice == nil {
+			return nil, E(CodeUnsupported, "xai realtime voice controller is not configured")
+		}
+		return s.cfg.RealtimeVoice.Start(ctx)
+	})
+	s.registry.Register("xai.stop", func(ctx context.Context, _ json.RawMessage) (any, error) {
+		if s.cfg.RealtimeVoice == nil {
+			return nil, E(CodeUnsupported, "xai realtime voice controller is not configured")
+		}
+		return s.cfg.RealtimeVoice.Stop(ctx)
+	})
+	s.registry.Register("xai.status", func(ctx context.Context, _ json.RawMessage) (any, error) {
+		if s.cfg.RealtimeVoice == nil {
+			return nil, E(CodeUnsupported, "xai realtime voice controller is not configured")
+		}
+		return s.cfg.RealtimeVoice.Status(ctx)
 	})
 	s.registry.Register("events.subscribe", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var req struct {

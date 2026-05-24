@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,6 +163,13 @@ func TestSessionOperationsCreateInspectMessagesAndDelete(t *testing.T) {
 	if _, err := svc.Dispatch(context.Background(), Request{Method: "sessions.get", Params: json.RawMessage(`{"id":"s1"}`)}); err != nil {
 		t.Fatalf("sessions.get: %v", err)
 	}
+	payload, err = svc.Dispatch(context.Background(), Request{Method: "sessions.list"})
+	if err != nil {
+		t.Fatalf("sessions.list: %v", err)
+	}
+	if got := payload.([]SessionInfo); len(got) != 1 || got[0].ID != "s1" {
+		t.Fatalf("list = %#v", got)
+	}
 	payload, err = svc.Dispatch(context.Background(), Request{Method: "sessions.messages", Params: json.RawMessage(`{"id":"s1"}`)})
 	if err != nil {
 		t.Fatalf("sessions.messages: %v", err)
@@ -293,6 +301,201 @@ func TestGatewayTransportAppPreservesTransportCompatibility(t *testing.T) {
 	}
 	if r.got.SkillName != "demo" {
 		t.Fatalf("triggered skill = %q", r.got.SkillName)
+	}
+}
+
+type captureProvider struct {
+	models []string
+}
+
+func (p *captureProvider) Chat(_ context.Context, req llm.Request) (<-chan llm.Chunk, error) {
+	p.models = append(p.models, req.Model)
+	ch := make(chan llm.Chunk, 2)
+	ch <- llm.Chunk{TextDelta: "ok"}
+	ch <- llm.Chunk{FinishReason: "stop"}
+	close(ch)
+	return ch, nil
+}
+
+func TestSessionModelOverrideIsLocalToSession(t *testing.T) {
+	t.Parallel()
+	provider := &captureProvider{}
+	svc := New(Config{
+		Provider: provider,
+		Store:    session.NewStore(t.TempDir(), nil),
+		Bus:      event.NewBus(),
+		Source:   source{},
+		Model:    "default-model",
+	})
+	if got := svc.CurrentModel("s1"); got != "default-model" {
+		t.Fatalf("CurrentModel default = %q", got)
+	}
+	if err := svc.SetSessionModel("s1", "alt-model"); err != nil {
+		t.Fatalf("SetSessionModel: %v", err)
+	}
+	if got := svc.CurrentModel("s1"); got != "alt-model" {
+		t.Fatalf("CurrentModel s1 = %q", got)
+	}
+	if got := svc.CurrentModel("s2"); got != "default-model" {
+		t.Fatalf("CurrentModel s2 = %q", got)
+	}
+	if _, err := svc.SubmitChat(context.Background(), ChatRequest{Session: "s1", Message: "hi"}); err != nil {
+		t.Fatalf("SubmitChat s1: %v", err)
+	}
+	if _, err := svc.SubmitChat(context.Background(), ChatRequest{Session: "s2", Message: "hi"}); err != nil {
+		t.Fatalf("SubmitChat s2: %v", err)
+	}
+	if got := strings.Join(provider.models, ","); got != "alt-model,default-model" {
+		t.Fatalf("models = %s", got)
+	}
+}
+
+type fakeCatalog struct {
+	calls  int
+	models []ModelInfo
+	err    error
+}
+
+func (f *fakeCatalog) ListModels(context.Context) ([]ModelInfo, error) {
+	f.calls++
+	return append([]ModelInfo(nil), f.models...), f.err
+}
+
+func TestModelCatalogCacheTTLAndFlush(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1000, 0)
+	cat := &fakeCatalog{models: []ModelInfo{{ID: "m1"}, {ID: "m2"}}}
+	svc := New(Config{ModelCatalog: cat, Now: func() time.Time { return now }})
+	first, err := svc.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels first: %v", err)
+	}
+	second, err := svc.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels cached: %v", err)
+	}
+	if cat.calls != 1 || len(first) != 2 || len(second) != 2 {
+		t.Fatalf("calls=%d first=%#v second=%#v", cat.calls, first, second)
+	}
+	now = now.Add(25 * time.Hour)
+	cat.models = []ModelInfo{{ID: "m3"}}
+	third, err := svc.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels expired: %v", err)
+	}
+	if cat.calls != 2 || len(third) != 1 || third[0].ID != "m3" {
+		t.Fatalf("calls=%d third=%#v", cat.calls, third)
+	}
+	svc.FlushModelCache()
+	cat.models = []ModelInfo{{ID: "m4"}}
+	fourth, err := svc.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels flushed: %v", err)
+	}
+	if cat.calls != 3 || fourth[0].ID != "m4" {
+		t.Fatalf("calls=%d fourth=%#v", cat.calls, fourth)
+	}
+}
+
+func TestModelOperationsDispatch(t *testing.T) {
+	t.Parallel()
+	cat := &fakeCatalog{models: []ModelInfo{{ID: "m1"}}}
+	svc := New(Config{Model: "default-model", ModelCatalog: cat})
+	payload, err := svc.Dispatch(context.Background(), Request{Method: "models.current", Params: json.RawMessage(`{"session":"s1"}`)})
+	if err != nil {
+		t.Fatalf("models.current: %v", err)
+	}
+	if got := payload.(ModelState).Model; got != "default-model" {
+		t.Fatalf("current = %q", got)
+	}
+	if _, err := svc.Dispatch(context.Background(), Request{Method: "models.use", Params: json.RawMessage(`{"session":"s1","model":"m1"}`)}); err != nil {
+		t.Fatalf("models.use: %v", err)
+	}
+	if got := svc.CurrentModel("s1"); got != "m1" {
+		t.Fatalf("s1 model = %q", got)
+	}
+	payload, err = svc.Dispatch(context.Background(), Request{Method: "models.list"})
+	if err != nil {
+		t.Fatalf("models.list: %v", err)
+	}
+	if got := payload.([]ModelInfo); len(got) != 1 || got[0].ID != "m1" {
+		t.Fatalf("models = %#v", got)
+	}
+	if _, err := svc.Dispatch(context.Background(), Request{Method: "models.flush"}); err != nil {
+		t.Fatalf("models.flush: %v", err)
+	}
+}
+
+type fakeVoiceController struct {
+	state VoiceState
+	err   error
+}
+
+func (f *fakeVoiceController) State(context.Context, string) (VoiceState, error) {
+	return f.state, f.err
+}
+
+func (f *fakeVoiceController) Update(_ context.Context, _ string, patch VoicePatch) (VoiceState, error) {
+	if patch.STTEnabled != nil {
+		f.state.STTEnabled = *patch.STTEnabled
+	}
+	if patch.TTSEnabled != nil {
+		f.state.TTSEnabled = *patch.TTSEnabled
+	}
+	return f.state, f.err
+}
+
+type fakeRealtimeVoice struct {
+	state RealtimeVoiceState
+	err   error
+}
+
+func (f *fakeRealtimeVoice) Start(context.Context) (RealtimeVoiceState, error) {
+	if f.err != nil {
+		return f.state, f.err
+	}
+	f.state.Connected = true
+	return f.state, nil
+}
+
+func (f *fakeRealtimeVoice) Stop(context.Context) (RealtimeVoiceState, error) {
+	if f.err != nil {
+		return f.state, f.err
+	}
+	f.state.Connected = false
+	return f.state, nil
+}
+
+func (f *fakeRealtimeVoice) Status(context.Context) (RealtimeVoiceState, error) {
+	return f.state, f.err
+}
+
+func TestVoiceAndXAIControlsDispatch(t *testing.T) {
+	t.Parallel()
+	vc := &fakeVoiceController{}
+	rt := &fakeRealtimeVoice{state: RealtimeVoiceState{Provider: "xai", Model: "grok", SessionID: "voice-1"}}
+	svc := New(Config{Voice: vc, RealtimeVoice: rt})
+	if _, err := svc.Dispatch(context.Background(), Request{Method: "voice.update", Params: json.RawMessage(`{"session":"s1","stt_enabled":true}`)}); err != nil {
+		t.Fatalf("voice.update: %v", err)
+	}
+	if !vc.state.STTEnabled {
+		t.Fatalf("voice state = %#v", vc.state)
+	}
+	payload, err := svc.Dispatch(context.Background(), Request{Method: "xai.start"})
+	if err != nil {
+		t.Fatalf("xai.start: %v", err)
+	}
+	if got := payload.(RealtimeVoiceState); !got.Connected || got.Provider != "xai" {
+		t.Fatalf("xai state = %#v", got)
+	}
+}
+
+func TestVoiceControlsReturnStructuredUnavailable(t *testing.T) {
+	t.Parallel()
+	svc := New(Config{Voice: &fakeVoiceController{err: errors.New("voice unavailable")}})
+	_, err := svc.Dispatch(context.Background(), Request{Method: "voice.update", Params: json.RawMessage(`{"stt_enabled":true}`)})
+	if AsError(err).Code != CodeUnsupported {
+		t.Fatalf("code = %v err=%v", AsError(err).Code, err)
 	}
 }
 

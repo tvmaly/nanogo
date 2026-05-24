@@ -11,7 +11,8 @@ SKILLS_DIR  := $(CURDIR)/testdata/skills
 	test-1.9 test-2.12 test-4.9 test-8.5 test-8.10 \
 	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24 test-14.27 \
 	test-15.17 test-15.18 test-15.19 test-15.5.8 voice-live voice-live-debug \
-	test-19.apple-tts test-19.apple-stt apple-voice-helpers test-19.5.apple-voice-chat
+	test-19.apple-tts test-19.apple-stt apple-voice-helpers test-19.5.apple-voice-chat \
+	test-19.8
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
@@ -291,6 +292,17 @@ test-19.5.apple-voice-chat: build-malgo apple-voice-helpers check-env
 	@echo ""; echo "=== TEST-19.5.apple-voice-chat: Apple STT/TTS voice chat ==="
 	@echo "Requires macOS 26+, microphone permission, speaker output, Apple speech assets, and OPENROUTER_API_KEY."
 	@$(BINARY) --workspace $(WORKSPACE) voice chat --stt apple --tts apple --locale en-US
+
+# TEST-19.8 — TUI gateway, OpenRouter model catalog, chat, and cost smoke
+test-19.8: build write-config-obs
+	@echo ""; echo "=== TEST-19.8: TUI OpenRouter smoke ==="
+	@OUT=$$($(BINARY) --config $(CONFIG_OBS) --workspace $(WORKSPACE) --skills $(SKILLS_DIR) tui --smoke); \
+	echo "$$OUT"; \
+	echo "$$OUT" | grep -q "tui smoke models=" \
+		&& echo "$$OUT" | grep -q "PHASE_19_8_OK" \
+		&& echo "$$OUT" | grep -q "tui smoke cost" \
+		&& echo "PASS: TUI OpenRouter smoke" \
+		|| (echo "FAIL: TUI OpenRouter smoke"; exit 1)
 
 # ── Run all manual tests in phase order ───────────────────────────────────────
 

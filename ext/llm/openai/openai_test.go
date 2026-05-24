@@ -431,3 +431,46 @@ func TestOpenRouterDeprecatedWebSearchNotUsed(t *testing.T) {
 		t.Error("plugins field must not be present")
 	}
 }
+
+func TestModelCatalogListsModelsWithAuth(t *testing.T) {
+	t.Parallel()
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if r.URL.Path != "/models" {
+			t.Fatalf("path = %s, want /models", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":[{"id":"openai/gpt-4.1-mini","name":"GPT 4.1 Mini","context_length":1048576,"pricing":{"prompt":"0.1","completion":"0.4"}}]}`))
+	}))
+	defer srv.Close()
+
+	cat := openai.NewModelCatalog(openai.Config{BaseURL: srv.URL, APIKey: "secret"})
+	models, err := cat.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if len(models) != 1 || models[0].ID != "openai/gpt-4.1-mini" || models[0].Name != "GPT 4.1 Mini" || models[0].Context != 1048576 {
+		t.Fatalf("models = %#v", models)
+	}
+	if models[0].Pricing["prompt"] != "0.1" {
+		t.Fatalf("pricing = %#v", models[0].Pricing)
+	}
+}
+
+func TestModelCatalogErrors(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(`{"error":"bad gateway"}`))
+	}))
+	defer srv.Close()
+	cat := openai.NewModelCatalog(openai.Config{BaseURL: srv.URL, APIKey: "secret"})
+	_, err := cat.ListModels(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "502") {
+		t.Fatalf("err = %v, want HTTP 502", err)
+	}
+}

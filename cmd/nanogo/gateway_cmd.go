@@ -6,14 +6,20 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
+	openaiadapter "github.com/tvmaly/nanogo/ext/llm/openai"
 	"github.com/tvmaly/nanogo/ext/transport/gatewayws"
 	"github.com/tvmaly/nanogo/ext/transport/openaiapi"
 	tuitransport "github.com/tvmaly/nanogo/ext/transport/tui"
+	"github.com/tvmaly/nanogo/ext/voice/providers/xai"
+	"github.com/tvmaly/nanogo/ext/voice/realtime"
+	voicesession "github.com/tvmaly/nanogo/ext/voice/session"
 	"github.com/tvmaly/nanogo/modules/gateway"
 	"github.com/tvmaly/nanogo/modules/tools/builtin"
 )
@@ -61,9 +67,118 @@ func buildGatewayRuntime(configPath, skillsDir, workspaceDir, source string) (*g
 			coord := builtin.NewAskUserCoordinator(bus, sessionID)
 			return buildRuntimeToolSource(cfg, provider, store, bus, coord)
 		},
-		CostPath: configuredCostPath(cfg),
+		CostPath:      configuredCostPath(cfg),
+		ModelCatalog:  buildModelCatalog(cfg),
+		Voice:         buildTUIGatewayVoiceController(cfg),
+		RealtimeVoice: buildXAIRealtimeController(workspaceDir),
 	})
 	return &gatewayRuntime{cfg: cfg, provider: provider, store: store, bus: bus, service: svc, cleanup: cleanup}, nil
+}
+
+func buildModelCatalog(cfg *config) gateway.ModelCatalog {
+	if cfg == nil || cfg.LLM.Driver != "openai" {
+		return nil
+	}
+	var c openaiadapter.Config
+	if err := json.Unmarshal(cfg.LLM.Config, &c); err != nil {
+		return nil
+	}
+	if c.APIKey == "" && c.APIKeyEnv != "" {
+		c.APIKey = os.Getenv(c.APIKeyEnv)
+	}
+	return openaiadapter.NewModelCatalog(c)
+}
+
+type tuiGatewayVoiceController struct {
+	state     gateway.VoiceState
+	available bool
+}
+
+func buildTUIGatewayVoiceController(cfg *config) gateway.VoiceController {
+	if cfg == nil {
+		return nil
+	}
+	available := cfg.Voice.Enabled || cfg.Voice.STT.DefaultProvider != "" || cfg.Voice.TTS.DefaultProvider != ""
+	if !available {
+		return nil
+	}
+	return &tuiGatewayVoiceController{available: true}
+}
+
+func (c *tuiGatewayVoiceController) State(context.Context, string) (gateway.VoiceState, error) {
+	if !c.available {
+		return gateway.VoiceState{}, fmt.Errorf("voice unavailable")
+	}
+	return c.state, nil
+}
+
+func (c *tuiGatewayVoiceController) Update(_ context.Context, sessionID string, patch gateway.VoicePatch) (gateway.VoiceState, error) {
+	if !c.available {
+		return gateway.VoiceState{}, fmt.Errorf("voice unavailable")
+	}
+	c.state.Session = sessionID
+	if patch.STTEnabled != nil {
+		c.state.STTEnabled = *patch.STTEnabled
+	}
+	if patch.TTSEnabled != nil {
+		c.state.TTSEnabled = *patch.TTSEnabled
+	}
+	return c.state, nil
+}
+
+type xaiRealtimeController struct {
+	workspace string
+	manager   *voicesession.Manager
+	sessionID string
+	state     gateway.RealtimeVoiceState
+}
+
+func buildXAIRealtimeController(workspace string) gateway.RealtimeVoiceController {
+	return &xaiRealtimeController{workspace: workspace}
+}
+
+func (c *xaiRealtimeController) Start(ctx context.Context) (gateway.RealtimeVoiceState, error) {
+	if c.sessionID != "" {
+		c.state.Connected = true
+		return c.state, nil
+	}
+	cfg, err := xai.ConfigFromEnv()
+	if err != nil {
+		return gateway.RealtimeVoiceState{}, err
+	}
+	adapter := xai.New(cfg)
+	c.manager = voicesession.NewManager(voicesession.Config{
+		Workspace: c.workspace,
+		Provider:  adapter,
+		ProviderCfg: realtime.ProviderConfig{
+			APIKey: cfg.APIKey,
+			Model:  cfg.Model,
+			URL:    cfg.URL,
+		},
+		SessionUpdate: xai.SessionUpdate(cfg),
+	})
+	s, err := c.manager.Start(ctx)
+	if err != nil {
+		return gateway.RealtimeVoiceState{}, err
+	}
+	c.sessionID = s.ID
+	c.state = gateway.RealtimeVoiceState{Provider: "xai", Model: cfg.Model, SessionID: s.ID, Connected: true}
+	return c.state, nil
+}
+
+func (c *xaiRealtimeController) Stop(context.Context) (gateway.RealtimeVoiceState, error) {
+	if c.manager != nil && c.sessionID != "" {
+		if err := c.manager.Close(c.sessionID); err != nil {
+			return c.state, err
+		}
+	}
+	c.sessionID = ""
+	c.state.Connected = false
+	return c.state, nil
+}
+
+func (c *xaiRealtimeController) Status(context.Context) (gateway.RealtimeVoiceState, error) {
+	return c.state, nil
 }
 
 func configuredCostPath(cfg *config) string {
@@ -87,6 +202,7 @@ func configuredCostPath(cfg *config) string {
 
 func runTUICmd(args []string, configPath, skillsDir, workspaceDir string) error {
 	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
+	smoke := fs.Bool("smoke", false, "Run non-interactive TUI smoke and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -95,7 +211,39 @@ func runTUICmd(args []string, configPath, skillsDir, workspaceDir string) error 
 		return err
 	}
 	defer rt.cleanup()
+	if *smoke {
+		return runTUISmoke(context.Background(), rt.service)
+	}
 	return tuitransport.Run(context.Background(), rt.service)
+}
+
+func runTUISmoke(ctx context.Context, svc *gateway.Service) error {
+	models, err := svc.ListModels(ctx)
+	if err != nil {
+		return fmt.Errorf("tui smoke models: %w", err)
+	}
+	fmt.Printf("tui smoke models=%d\n", len(models))
+	resp, err := svc.SubmitChat(ctx, gateway.ChatRequest{Session: "tui-smoke", Message: "Reply with exactly: PHASE_19_8_OK"})
+	if err != nil {
+		return fmt.Errorf("tui smoke chat: %w", err)
+	}
+	fmt.Printf("tui smoke reply=%s\n", strings.TrimSpace(resp.Text))
+	var costs gateway.CostSummary
+	for i := 0; i < 10; i++ {
+		costs, err = svc.CostSummary("tui-smoke")
+		if err != nil {
+			return fmt.Errorf("tui smoke cost: %w", err)
+		}
+		if costs.Turns > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	fmt.Printf("tui smoke cost turns=%d input=%d output=%d usd=%.6f\n", costs.Turns, costs.InputTokens, costs.OutputTokens, costs.CostUSD)
+	if !strings.Contains(resp.Text, "PHASE_19_8_OK") {
+		return fmt.Errorf("tui smoke reply missing PHASE_19_8_OK")
+	}
+	return nil
 }
 
 func runOpenAIAPICmd(args []string, configPath, skillsDir, workspaceDir string) error {

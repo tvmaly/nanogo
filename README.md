@@ -411,6 +411,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 18 v3 interface prerequisite | Narrow `core/contracts` package plus tool and subagent adapters | AgentFlow-style runtimes can depend on stable kernel contracts for tools, subagents, handoff, traces, and approvals without importing concrete product extensions | ✅ Complete |
 | 18 v3 pattern runtime | Contract-backed `ext/agentpatterns` runtime, pattern tools, skill opt-in, voice bridge handoff, trace/checkpoint stores | Tutor workflows can route through single, router, supervisor-worker, sequential, parallel, loop, review, handoff, and human-review patterns without leaking extension code into core or modules | ✅ Complete |
 | 19.7 | Extensible interface surface: shared `modules/gateway`, Bubble Tea TUI, OpenAI-compatible HTTP API, and OpenClaw-style Gateway WebSocket | Operators and apps can drive the same tutor sessions, skills, tools, costs, and events through stable adapter contracts without adding interface logic to `core/` | ✅ Complete |
+| 19.8 | Rich Bubble Tea TUI with slash commands, session-local model switching, model catalog cache, cost lookup, STT/TTS toggles, and xAI realtime controls | The terminal operator can chat, inspect sessions, run skills, monitor costs/events, switch OpenRouter models per session, and control voice state without widening `core/` | ✅ Complete |
 
 ---
 
@@ -704,17 +705,54 @@ make test-14.27
 
 The `tutorruntime` tool source exposes policy selection, turn recording, answer grading, mastery update, misconception detection, remediation recommendation, review scheduling, and session summary tools.
 
-## Phase 19.7 Interface Surface
+## Phase 19.7 and 19.8 Interface Surface
 
 Phase 19.7 adds `modules/gateway` as the shared interface-facing service. The gateway owns operator operations for chat, sessions, skills, tools, costs, and normalized events while keeping `core/` limited to stable agent, session, event, tool, and LLM contracts.
 
-Local operator console:
+Phase 19.8 expands the local Bubble Tea TUI into the main terminal operator console. It adds slash commands for current-session costs, session-local OpenRouter model switching, STT/TTS toggles, and xAI realtime speech controls.
+
+Build and run the local operator console:
 
 ```bash
+make build
+OPENROUTER_API_KEY=sk-or-v1-... \
 /tmp/nanogo --config /tmp/nanogo-test-config.json \
   --workspace /tmp/nanogo-workspace \
   --skills testdata/skills \
   tui
+```
+
+Useful TUI keys:
+
+| Key | Action |
+|---|---|
+| `Tab` / `Shift+Tab` | Move between Chat, Sessions, Skills, Tools, Costs, and Events panes |
+| `Enter` | Send chat input, select the highlighted session, or run the highlighted skill |
+| `Up` / `Down` | Move selection inside panes that support selection |
+| `n` | Create a session in the Sessions pane |
+| `d` | Delete the highlighted non-current session in the Sessions pane |
+| `r` | Refresh gateway data |
+| `Esc` / `Ctrl+C` | Quit |
+
+Supported TUI slash commands from the chat input:
+
+| Command | Behavior |
+|---|---|
+| `/cost` | Show the current session's cost summary |
+| `/model current` | Show the current session model |
+| `/model list` | List available OpenRouter models, cached for 24 hours |
+| `/model use <model-id>` | Switch only the active TUI session to the selected model |
+| `/model flush` | Clear the model catalog cache so the next list refetches |
+| `/stt on` / `/stt off` | Enable or disable speech-to-text state for the active TUI voice session |
+| `/tts on` / `/tts off` | Enable or disable text-to-speech state for the active TUI voice session |
+| `/xai on` | Start the xAI realtime speech control path when `XAI_API_KEY` is configured |
+| `/xai status` | Show xAI provider, model, session, and connection status |
+| `/xai off` | Stop the xAI realtime speech session and release resources |
+
+Non-interactive TUI smoke against OpenRouter:
+
+```bash
+OPENROUTER_API_KEY=sk-or-v1-... make test-19.8
 ```
 
 OpenAI-compatible HTTP API:
