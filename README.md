@@ -28,8 +28,11 @@ nanogo is different:
 - **Runs on your computer** — your family's data stays with you
 - **Fully customizable** — create lessons, quizzes, and study plans by writing simple text files
 - **Voice mode** — Phase 19 adds contract-backed speech-to-text and text-to-speech so a child can speak to the tutor and hear responses when a voice provider is configured
+- **Extensible operator interfaces** — Phase 19.7 adds a shared gateway surface so the same tutor runtime can be driven from a local TUI, an OpenAI-compatible HTTP API, or an OpenClaw-style WebSocket gateway
 
 For parents, Phase 19 voice support matters because it makes tutoring less like typing into a chatbot and more like working with a patient adult helper. Younger learners can answer out loud before they type confidently, parents can turn listening or speaking on and off during a session, and raw microphone audio is not persisted by default.
+
+Phase 19.7 matters for families and builders who want more than one way to operate the tutor. A local terminal operator can monitor sessions in a TUI, existing OpenAI-compatible clients can call nanogo through `/v1/chat/completions`, and future apps can subscribe to normalized gateway events without coupling to the core agent loop.
 
 ---
 
@@ -407,6 +410,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 17.5 | Phase 18 readiness hardening: spawn runtime wiring, configured transport app adapter, schema-versioned evidence, module import guard, raw voice log opt-in | Complex tutor flows can safely delegate, run through configured transports, and keep auditable evidence without exposing raw provider data by default | ✅ Complete |
 | 18 v3 interface prerequisite | Narrow `core/contracts` package plus tool and subagent adapters | AgentFlow-style runtimes can depend on stable kernel contracts for tools, subagents, handoff, traces, and approvals without importing concrete product extensions | ✅ Complete |
 | 18 v3 pattern runtime | Contract-backed `ext/agentpatterns` runtime, pattern tools, skill opt-in, voice bridge handoff, trace/checkpoint stores | Tutor workflows can route through single, router, supervisor-worker, sequential, parallel, loop, review, handoff, and human-review patterns without leaking extension code into core or modules | ✅ Complete |
+| 19.7 | Extensible interface surface: shared `modules/gateway`, Bubble Tea TUI, OpenAI-compatible HTTP API, and OpenClaw-style Gateway WebSocket | Operators and apps can drive the same tutor sessions, skills, tools, costs, and events through stable adapter contracts without adding interface logic to `core/` | ✅ Complete |
 
 ---
 
@@ -699,6 +703,43 @@ make test-14.27
 ```
 
 The `tutorruntime` tool source exposes policy selection, turn recording, answer grading, mastery update, misconception detection, remediation recommendation, review scheduling, and session summary tools.
+
+## Phase 19.7 Interface Surface
+
+Phase 19.7 adds `modules/gateway` as the shared interface-facing service. The gateway owns operator operations for chat, sessions, skills, tools, costs, and normalized events while keeping `core/` limited to stable agent, session, event, tool, and LLM contracts.
+
+Local operator console:
+
+```bash
+/tmp/nanogo --config /tmp/nanogo-test-config.json \
+  --workspace /tmp/nanogo-workspace \
+  --skills testdata/skills \
+  tui
+```
+
+OpenAI-compatible HTTP API:
+
+```bash
+export NANOGO_GATEWAY_TOKEN=local-secret
+/tmp/nanogo --config /tmp/nanogo-test-config.json \
+  --workspace /tmp/nanogo-workspace \
+  --skills testdata/skills \
+  openaiapi --addr :8081
+```
+
+It exposes `GET /healthz`, `GET /v1/models`, `POST /v1/chat/completions`, and nanogo control endpoints under `/nanogo/v1/`.
+
+Gateway WebSocket:
+
+```bash
+export NANOGO_GATEWAY_TOKEN=local-secret
+/tmp/nanogo --config /tmp/nanogo-test-config.json \
+  --workspace /tmp/nanogo-workspace \
+  --skills testdata/skills \
+  gatewayws --addr :8082 --path /gateway
+```
+
+The WebSocket adapter uses OpenClaw-style JSON text envelopes with a first `connect` request, v1 protocol negotiation, bearer auth, `req`/`res` frames, and normalized `event` frames. Client-supplied OpenAI tools are rejected by the HTTP compatibility layer; nanogo runtime tools remain server-side policy.
 
 ## Realtime Voice Extension
 
