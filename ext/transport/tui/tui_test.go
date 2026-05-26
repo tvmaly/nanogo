@@ -16,6 +16,8 @@ import (
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/modules/gateway"
+	"github.com/tvmaly/nanogo/modules/help"
+	helpfake "github.com/tvmaly/nanogo/modules/help/fake"
 	"github.com/tvmaly/nanogo/modules/skills"
 )
 
@@ -135,6 +137,43 @@ func TestModelChatUpdate(t *testing.T) {
 	}
 }
 
+func TestChatPaneScrollsLongAssistantResponse(t *testing.T) {
+	svc := gateway.New(gateway.Config{Provider: fakellm.New(nil), Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}})
+	m := NewModel(svc)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+	m = next.(Model)
+	long := strings.Join([]string{
+		"line 01",
+		"line 02",
+		"line 03",
+		"line 04",
+		"line 05",
+		"line 06",
+	}, "\n")
+	next, _ = m.Update(chatMsg{resp: gateway.ChatResponse{Session: "tui", Text: long}})
+	m = next.(Model)
+
+	if view := m.View(); strings.Contains(view, "line 01") || !strings.Contains(view, "line 06") {
+		t.Fatalf("initial view should be pinned to latest response lines:\n%s", view)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(Model)
+	if view := m.View(); !strings.Contains(view, "line 01") || strings.Contains(view, "line 06") {
+		t.Fatalf("scrolled view should expose earlier response lines:\n%s", view)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	if view := m.View(); strings.Contains(view, "line 01") || !strings.Contains(view, "line 06") {
+		t.Fatalf("down scroll should return to latest response lines:\n%s", view)
+	}
+}
+
 func TestModelRendersGatewayErrors(t *testing.T) {
 	svc := gateway.New(gateway.Config{Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
 	m := NewModel(svc)
@@ -232,6 +271,56 @@ func TestModelSlashModelCommandsUseCacheAndSessionOverride(t *testing.T) {
 	}
 }
 
+func TestModelSlashSearchMatchesModelSuffixCaseInsensitive(t *testing.T) {
+	cat := &fakeCatalog{models: []gateway.ModelInfo{
+		{ID: "openai/GPT-4.1-mini"},
+		{ID: "anthropic/claude-haiku-4-5"},
+		{ID: "xai/grok-code-fast-1"},
+		{ID: "local/gpt-oss-20b"},
+	}}
+	svc := gateway.New(gateway.Config{ModelCatalog: cat, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	m := NewModel(svc)
+
+	out, err := m.runSlash(context.Background(), "/model search gpt")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if !strings.Contains(out, "openai/GPT-4.1-mini") || !strings.Contains(out, "local/gpt-oss-20b") {
+		t.Fatalf("search output = %s", out)
+	}
+	if strings.Contains(out, "anthropic/claude") || strings.Contains(out, "xai/grok") {
+		t.Fatalf("search output included non-matches: %s", out)
+	}
+
+	out, err = m.runSlash(context.Background(), "/model search CLAUDE")
+	if err != nil {
+		t.Fatalf("search uppercase: %v", err)
+	}
+	if !strings.Contains(out, "anthropic/claude-haiku-4-5") || strings.Contains(out, "openai/GPT") {
+		t.Fatalf("uppercase search output = %s", out)
+	}
+}
+
+func TestModelSlashExitQuitsTUI(t *testing.T) {
+	svc := gateway.New(gateway.Config{Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	m := NewModel(svc)
+	for _, r := range []rune("/exit") {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(Model)
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("/exit did not produce quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("/exit command produced %T", cmd())
+	}
+	if m.input != "" {
+		t.Fatalf("input = %q, want cleared", m.input)
+	}
+}
+
 func TestModelVoiceAndXAICommands(t *testing.T) {
 	vc := &fakeVoice{}
 	rt := &fakeRealtime{state: gateway.RealtimeVoiceState{Provider: "xai", Model: "grok", SessionID: "voice-1"}}
@@ -256,6 +345,77 @@ func TestModelVoiceAndXAICommands(t *testing.T) {
 	out, err = m.runSlash(context.Background(), "/xai off")
 	if err != nil || !strings.Contains(out, "connected=false") {
 		t.Fatalf("xai off out=%q err=%v", out, err)
+	}
+}
+
+func TestHelpSlashUsesGatewayAndDoesNotAppendChat(t *testing.T) {
+	fh := &helpfake.Service{SuggestResp: help.SuggestResponse{Hits: []help.SearchHit{{ID: "tui.slash_commands", Summary: "TUI commands", Kind: "command", Title: "TUI Slash Commands", Snippet: "TUI commands"}}}}
+	svc := gateway.New(gateway.Config{Help: fh, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	m := NewModel(svc)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/help")})
+	m = next.(Model)
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("expected help command")
+	}
+	msg := cmd().(helpMsg)
+	next, _ = m.Update(msg)
+	m = next.(Model)
+	if !m.helpOpen || len(fh.SuggestCalls) != 1 || len(m.chat) != 0 {
+		t.Fatalf("helpOpen=%t suggest=%#v chat=%#v", m.helpOpen, fh.SuggestCalls, m.chat)
+	}
+	if !strings.Contains(m.View(), "tui.slash_commands") {
+		t.Fatalf("view = %s", m.View())
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+	if m.helpOpen || len(m.chat) != 0 {
+		t.Fatalf("closed helpOpen=%t chat=%#v", m.helpOpen, m.chat)
+	}
+}
+
+func TestHelpSlashSearchAndTopicUseGateway(t *testing.T) {
+	fh := &helpfake.Service{
+		SearchResp: help.SearchResponse{Hits: []help.SearchHit{{ID: "voice.privacy", Title: "Voice Privacy", Summary: "Privacy", Kind: "safety", Snippet: "Privacy"}}},
+		TopicResp:  help.TopicResponse{Topic: help.Topic{TopicMeta: help.TopicMeta{ID: "voice.privacy", Title: "Voice Privacy", Related: []string{"tui.slash_commands"}}, SourcePaths: []string{"ext/voice"}, Sections: map[string]string{"verification": "Run tests."}}},
+		RenderResp: help.RenderResponse{TopicID: "voice.privacy", Format: help.FormatTUI, Text: "Voice Privacy\nRelated: tui.slash_commands\n"},
+	}
+	svc := gateway.New(gateway.Config{Help: fh, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	m := NewModel(svc)
+	msg := m.runHelpSlash(context.Background(), "/help voice privacy")
+	next, _ := m.Update(msg)
+	m = next.(Model)
+	if len(fh.SearchCalls) != 1 || fh.SearchCalls[0].Query != "voice privacy" || len(m.chat) != 0 {
+		t.Fatalf("search=%#v chat=%#v", fh.SearchCalls, m.chat)
+	}
+	msg = m.runHelpSlash(context.Background(), "/help topic voice.privacy")
+	next, _ = m.Update(msg)
+	m = next.(Model)
+	if len(fh.TopicCalls) != 1 || !strings.Contains(m.View(), "Related") || len(m.chat) != 0 {
+		t.Fatalf("topic=%#v view=%s chat=%#v", fh.TopicCalls, m.View(), m.chat)
+	}
+}
+
+func TestQuestionMarkIsNormalInput(t *testing.T) {
+	svc := gateway.New(gateway.Config{Help: &helpfake.Service{}, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	m := NewModel(svc)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	m = next.(Model)
+	if m.helpOpen || m.input != "?" {
+		t.Fatalf("helpOpen=%t input=%q", m.helpOpen, m.input)
+	}
+}
+
+func TestChatAcceptsPrintableShortcutKeys(t *testing.T) {
+	svc := gateway.New(gateway.Config{Help: &helpfake.Service{}, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	m := NewModel(svc)
+	for _, r := range []rune("/model current") {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(Model)
+	}
+	if m.input != "/model current" {
+		t.Fatalf("input = %q", m.input)
 	}
 }
 

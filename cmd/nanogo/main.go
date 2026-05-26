@@ -51,6 +51,12 @@ func main() {
 	// Handle subcommands before other flags.
 	if flag.NArg() > 0 {
 		switch flag.Arg(0) {
+		case "help":
+			if err := runHelpCmd(flag.Args()[1:]); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "cost":
 			if err := runCostCmd(flag.Args()[1:]); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)

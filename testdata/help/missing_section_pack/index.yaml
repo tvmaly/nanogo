@@ -1,0 +1,6 @@
+schema_version: help-pack/v1
+pack_id: test.missing
+name: Missing Section Test Help
+version: 1
+root_topics:
+  - voice.privacy

@@ -29,6 +29,7 @@ nanogo is different:
 - **Fully customizable** — create lessons, quizzes, and study plans by writing simple text files
 - **Voice mode** — Phase 19 adds contract-backed speech-to-text and text-to-speech so a child can speak to the tutor and hear responses when a voice provider is configured
 - **Extensible operator interfaces** — Phase 19.7 adds a shared gateway surface so the same tutor runtime can be driven from a local TUI, an OpenAI-compatible HTTP API, or an OpenClaw-style WebSocket gateway
+- **Local interactive help** — Phase 19.9 adds deterministic help topics that can be searched from the CLI, TUI, GatewayWS, and the OpenAI-compatible operations endpoint without calling an LLM
 
 For parents, Phase 19 voice support matters because it makes tutoring less like typing into a chatbot and more like working with a patient adult helper. Younger learners can answer out loud before they type confidently, parents can turn listening or speaking on and off during a session, and raw microphone audio is not persisted by default.
 
@@ -711,6 +712,8 @@ Phase 19.7 adds `modules/gateway` as the shared interface-facing service. The ga
 
 Phase 19.8 expands the local Bubble Tea TUI into the main terminal operator console. It adds slash commands for current-session costs, session-local OpenRouter model switching, STT/TTS toggles, and xAI realtime speech controls.
 
+Phase 19.9 adds a contract-backed local help system. Help content lives in `docs/help`, domain behavior lives in `modules/help`, filesystem loading lives in `ext/help/files`, and transports access help through `modules/gateway`.
+
 Build and run the local operator console:
 
 ```bash
@@ -728,7 +731,9 @@ Useful TUI keys:
 |---|---|
 | `Tab` / `Shift+Tab` | Move between Chat, Sessions, Skills, Tools, Costs, and Events panes |
 | `Enter` | Send chat input, select the highlighted session, or run the highlighted skill |
-| `Up` / `Down` | Move selection inside panes that support selection |
+| `Up` / `Down` | Scroll Chat history, or move selection inside panes that support selection |
+| `PageUp` / `PageDown` | Scroll Chat history by a page |
+| `Home` / `End` | Jump to the oldest or newest visible Chat history |
 | `n` | Create a session in the Sessions pane |
 | `d` | Delete the highlighted non-current session in the Sessions pane |
 | `r` | Refresh gateway data |
@@ -748,6 +753,39 @@ Supported TUI slash commands from the chat input:
 | `/xai on` | Start the xAI realtime speech control path when `XAI_API_KEY` is configured |
 | `/xai status` | Show xAI provider, model, session, and connection status |
 | `/xai off` | Stop the xAI realtime speech session and release resources |
+| `/help` | Open contextual help suggestions without sending a chat message |
+| `/help <query>` | Search local help topics |
+| `/help topic <topic-id>` | Open one structured help topic |
+| `/help validate` | Validate the configured help pack |
+
+## Phase 19.9 Help System
+
+Use the built-in local help pack from the CLI:
+
+```bash
+/tmp/nanogo help
+/tmp/nanogo help search gateway
+/tmp/nanogo help tools.contracts
+/tmp/nanogo help validate
+```
+
+The same help service is available through gateway operations:
+
+```json
+{"method":"help.search","params":{"query":"voice privacy","limit":5}}
+{"method":"help.topic","params":{"id":"voice.privacy"}}
+{"method":"help.suggest","params":{"interface":"tui.chat","limit":5}}
+{"method":"help.validate"}
+```
+
+OpenAI-compatible clients should use `POST /nanogo/v1/operations` for help operations. Phase 19.9 intentionally does not add a dedicated help GET route and does not inject help as an implicit model tool into `/v1/chat/completions`.
+
+Help topics are deterministic local content. Normal help lookup does not call an LLM, invoke tools, use embeddings, read vector stores, or write session history. The checked-in pack can be validated with:
+
+```bash
+go test ./modules/help/... ./ext/help/files/... ./modules/gateway ./ext/transport/tui ./ext/transport/gatewayws ./ext/transport/openaiapi ./cmd/nanogo
+make test-19.9
+```
 
 Non-interactive TUI smoke against OpenRouter:
 

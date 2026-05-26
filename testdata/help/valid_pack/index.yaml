@@ -1,0 +1,6 @@
+schema_version: help-pack/v1
+pack_id: test.valid
+name: Valid Test Help
+version: 1
+root_topics:
+  - quickstart.overview

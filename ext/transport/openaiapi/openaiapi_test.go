@@ -16,6 +16,8 @@ import (
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/modules/gateway"
+	"github.com/tvmaly/nanogo/modules/help"
+	helpfake "github.com/tvmaly/nanogo/modules/help/fake"
 )
 
 type testSource struct{}
@@ -35,7 +37,10 @@ func (testTool) Call(context.Context, json.RawMessage) (string, error) { return 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	provider := fakellm.New([]llm.Chunk{{TextDelta: "ok"}, {FinishReason: "stop"}})
-	svc := gateway.New(gateway.Config{Provider: provider, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: testSource{}, Model: "m"})
+	svc := gateway.New(gateway.Config{
+		Provider: provider, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: testSource{}, Model: "m",
+		Help: &helpfake.Service{SearchResp: help.SearchResponse{Hits: []help.SearchHit{{ID: "skills.markdown", Title: "Skills", Summary: "Skills help", Kind: "guide", Snippet: "Skills help"}}}},
+	})
 	return New(Config{Auth: AuthConfig{Bearer: "secret"}}, svc)
 }
 
@@ -206,5 +211,24 @@ func TestNanogoControlEndpointsUseGatewayService(t *testing.T) {
 	s.ServeHTTP(rec, authed(http.MethodPost, "/nanogo/v1/operations", `{"method":"status"}`))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) {
 		t.Fatalf("operations status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOperationsEndpointDispatchesHelpWithoutChangingChatPath(t *testing.T) {
+	s := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, authed(http.MethodPost, "/nanogo/v1/operations", `{"method":"help.search","params":{"query":"skills"}}`))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "skills.markdown") {
+		t.Fatalf("help operation status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, authed(http.MethodGet, "/nanogo/help", ""))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("dedicated help route status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, authed(http.MethodPost, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`))
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "skills.markdown") {
+		t.Fatalf("chat status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

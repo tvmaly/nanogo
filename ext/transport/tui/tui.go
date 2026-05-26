@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tvmaly/nanogo/modules/gateway"
+	"github.com/tvmaly/nanogo/modules/help"
 )
 
 type Config struct {
@@ -36,6 +37,14 @@ type Model struct {
 	streaming       bool
 	streamBuffer    string
 	err             string
+	helpOpen        bool
+	helpTitle       string
+	helpText        string
+	helpResults     []help.SearchHit
+	selectedHelp    int
+	width           int
+	height          int
+	chatScroll      int
 }
 
 type loadedMsg struct {
@@ -55,6 +64,13 @@ type chatMsg struct {
 type commandMsg struct {
 	text string
 	err  error
+}
+
+type helpMsg struct {
+	title   string
+	text    string
+	results []help.SearchHit
+	err     error
 }
 
 type streamDeltaMsg struct{ delta string }
@@ -102,6 +118,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = ""
 		m.session = msg.resp.Session
 		m.chat = append(m.chat, "assistant: "+msg.resp.Text)
+		m.chatScroll = 0
 		m.appendEvents(msg.resp.Events...)
 		return m, m.loadCmd()
 	case commandMsg:
@@ -115,6 +132,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chat = append(m.chat, msg.text)
 		}
 		return m, m.loadCmd()
+	case helpMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			return m, nil
+		}
+		m.err = ""
+		m.helpOpen = true
+		m.helpTitle = msg.title
+		m.helpText = msg.text
+		m.helpResults = append([]help.SearchHit(nil), msg.results...)
+		m.selectedHelp = 0
+		return m, nil
 	case streamDeltaMsg:
 		m.streaming = true
 		m.streamBuffer += msg.delta
@@ -131,10 +160,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.streamBuffer = ""
 		m.chat = append(m.chat, "assistant: "+text)
+		m.chatScroll = 0
 		return m, m.loadCmd()
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.clampChatScroll()
+		return m, nil
 	case tea.KeyMsg:
+		if (m.helpOpen || tabs[m.active] == "Chat") && len(msg.Runes) > 0 {
+			m.input += string(msg.Runes)
+			return m, nil
+		}
 		switch msg.String() {
 		case "ctrl+c", "esc":
+			if m.helpOpen {
+				m.helpOpen = false
+				return m, nil
+			}
 			return m, tea.Quit
 		case "tab":
 			m.active = (m.active + 1) % len(tabs)
@@ -143,10 +186,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.active = (m.active + len(tabs) - 1) % len(tabs)
 			return m, nil
 		case "up":
-			m.moveSelection(-1)
+			if m.helpOpen {
+				m.selectedHelp = clampSelection(m.selectedHelp-1, len(m.helpResults))
+			} else if tabs[m.active] == "Chat" {
+				m.scrollChat(1)
+			} else {
+				m.moveSelection(-1)
+			}
 			return m, nil
 		case "down":
-			m.moveSelection(1)
+			if m.helpOpen {
+				m.selectedHelp = clampSelection(m.selectedHelp+1, len(m.helpResults))
+			} else if tabs[m.active] == "Chat" {
+				m.scrollChat(-1)
+			} else {
+				m.moveSelection(1)
+			}
+			return m, nil
+		case "pgup":
+			if tabs[m.active] == "Chat" && !m.helpOpen {
+				m.scrollChat(m.chatPageSize())
+			}
+			return m, nil
+		case "pgdown":
+			if tabs[m.active] == "Chat" && !m.helpOpen {
+				m.scrollChat(-m.chatPageSize())
+			}
+			return m, nil
+		case "home":
+			if tabs[m.active] == "Chat" && !m.helpOpen {
+				m.chatScroll = m.maxChatScroll()
+			}
+			return m, nil
+		case "end":
+			if tabs[m.active] == "Chat" && !m.helpOpen {
+				m.chatScroll = 0
+			}
 			return m, nil
 		case "n":
 			if tabs[m.active] == "Sessions" {
@@ -159,6 +234,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			return m, m.loadCmd()
 		case "enter":
+			if m.helpOpen && len(m.helpResults) > 0 && m.input == "" {
+				return m, m.helpTopicCmd(m.helpResults[m.selectedHelp].ID)
+			}
 			if tabs[m.active] == "Skills" {
 				return m, m.runSelectedSkillCmd()
 			}
@@ -171,10 +249,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.input = ""
-			m.chat = append(m.chat, "user: "+text)
 			if strings.HasPrefix(text, "/") {
+				if text == "/exit" || text == "/quit" {
+					return m, tea.Quit
+				}
 				return m, m.slashCmd(text)
 			}
+			m.chat = append(m.chat, "user: "+text)
+			m.chatScroll = 0
 			m.streaming = true
 			return m, m.chatCmd(text)
 		case "backspace":
@@ -204,16 +286,34 @@ func (m Model) View() string {
 	if m.err != "" {
 		b.WriteString("error: " + m.err + "\n")
 	}
+	if m.helpOpen {
+		b.WriteString("Help: " + m.helpTitle + "\n")
+		if len(m.helpResults) > 0 {
+			for i, hit := range m.helpResults {
+				prefix := "  "
+				if i == m.selectedHelp {
+					prefix = "> "
+				}
+				b.WriteString(prefix + hit.ID + " - " + hit.Summary + "\n")
+			}
+		}
+		if m.helpText != "" {
+			b.WriteString(m.helpText)
+			if !strings.HasSuffix(m.helpText, "\n") {
+				b.WriteString("\n")
+			}
+		}
+		b.WriteString("> " + m.input)
+		return b.String()
+	}
 	switch tabs[m.active] {
 	case "Chat":
-		if len(m.chat) == 0 {
+		lines := m.chatLines()
+		if len(lines) == 0 {
 			b.WriteString("No chat yet.\n")
 		} else {
-			b.WriteString(strings.Join(m.chat, "\n"))
+			b.WriteString(strings.Join(m.visibleChatLines(lines), "\n"))
 			b.WriteString("\n")
-		}
-		if m.streaming {
-			b.WriteString("assistant: " + m.streamBuffer + "\n")
 		}
 		b.WriteString("> " + m.input)
 	case "Sessions":
@@ -287,9 +387,72 @@ func (m Model) chatCmd(text string) tea.Cmd {
 
 func (m Model) slashCmd(text string) tea.Cmd {
 	return func() tea.Msg {
+		if strings.HasPrefix(text, "/help") {
+			return m.runHelpSlash(context.Background(), text)
+		}
 		out, err := m.runSlash(context.Background(), text)
 		return commandMsg{text: out, err: err}
 	}
+}
+
+func (m Model) runHelpSlash(ctx context.Context, text string) helpMsg {
+	fields := strings.Fields(text)
+	if len(fields) == 1 {
+		raw, _ := json.Marshal(help.SuggestRequest{Interface: "tui.chat", Limit: 5})
+		payload, err := m.service.Dispatch(ctx, gateway.Request{Method: "help.suggest", Params: raw})
+		if err != nil {
+			return helpMsg{err: err}
+		}
+		resp := payload.(help.SuggestResponse)
+		return helpMsg{title: "Suggestions", results: resp.Hits}
+	}
+	if len(fields) == 2 && fields[1] == "validate" {
+		payload, err := m.service.Dispatch(ctx, gateway.Request{Method: "help.validate"})
+		if err != nil {
+			return helpMsg{err: err}
+		}
+		resp := payload.(help.ValidateResponse)
+		if resp.OK {
+			return helpMsg{title: "Validation", text: "help validation: ok\n"}
+		}
+		return helpMsg{title: "Validation", text: "help validation errors:\n" + strings.Join(resp.Errors, "\n")}
+	}
+	if len(fields) == 3 && fields[1] == "topic" {
+		return m.openHelpTopic(ctx, fields[2])
+	}
+	query := strings.TrimSpace(strings.TrimPrefix(text, "/help"))
+	raw, _ := json.Marshal(help.SearchRequest{Query: query, Interface: "tui.chat", Limit: 5})
+	payload, err := m.service.Dispatch(ctx, gateway.Request{Method: "help.search", Params: raw})
+	if err != nil {
+		return helpMsg{err: err}
+	}
+	resp := payload.(help.SearchResponse)
+	return helpMsg{title: "Search: " + query, results: resp.Hits}
+}
+
+func (m Model) helpTopicCmd(id string) tea.Cmd {
+	return func() tea.Msg {
+		return m.openHelpTopic(context.Background(), id)
+	}
+}
+
+func (m Model) openHelpTopic(ctx context.Context, id string) helpMsg {
+	raw, _ := json.Marshal(help.TopicRequest{ID: id, Interface: "tui.chat"})
+	payload, err := m.service.Dispatch(ctx, gateway.Request{Method: "help.topic", Params: raw})
+	if err != nil {
+		return helpMsg{err: err}
+	}
+	resp := payload.(help.TopicResponse)
+	rendered, err := m.service.Dispatch(ctx, gateway.Request{Method: "help.render", Params: mustJSON(help.RenderRequest{TopicID: resp.Topic.ID, Format: help.FormatTUI, Width: 80})})
+	if err != nil {
+		return helpMsg{err: err}
+	}
+	return helpMsg{title: resp.Topic.Title, text: rendered.(help.RenderResponse).Text}
+}
+
+func mustJSON(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
 }
 
 func (m Model) runSlash(ctx context.Context, text string) (string, error) {
@@ -306,6 +469,8 @@ func (m Model) runSlash(ctx context.Context, text string) (string, error) {
 		return "cost: " + formatCost(costs), nil
 	case "/model":
 		return m.runModelSlash(ctx, fields)
+	case "/exit", "/quit":
+		return "exiting", nil
 	case "/stt", "/tts":
 		if len(fields) != 2 || (fields[1] != "on" && fields[1] != "off") {
 			return "", fmt.Errorf("usage: %s on|off", fields[0])
@@ -333,7 +498,7 @@ func (m Model) runSlash(ctx context.Context, text string) (string, error) {
 
 func (m Model) runModelSlash(ctx context.Context, fields []string) (string, error) {
 	if len(fields) < 2 {
-		return "", fmt.Errorf("usage: /model current|list|use|flush")
+		return "", fmt.Errorf("usage: /model current|list|search|use|flush")
 	}
 	switch fields[1] {
 	case "current":
@@ -354,6 +519,19 @@ func (m Model) runModelSlash(ctx context.Context, fields []string) (string, erro
 		for _, model := range models {
 			ids = append(ids, model.ID)
 		}
+		if len(ids) == 0 {
+			return "models: none", nil
+		}
+		return "models:\n" + strings.Join(ids, "\n"), nil
+	case "search":
+		if len(fields) != 3 {
+			return "", fmt.Errorf("usage: /model search <partial-name>")
+		}
+		models, err := m.service.ListModels(ctx)
+		if err != nil {
+			return "", err
+		}
+		ids := matchingModelSuffixes(models, fields[2])
 		if len(ids) == 0 {
 			return "models: none", nil
 		}
@@ -389,8 +567,26 @@ func (m Model) runModelSlash(ctx context.Context, fields []string) (string, erro
 		}
 		return "model set: " + modelID, nil
 	default:
-		return "", fmt.Errorf("usage: /model current|list|use|flush")
+		return "", fmt.Errorf("usage: /model current|list|search|use|flush")
 	}
+}
+
+func matchingModelSuffixes(models []gateway.ModelInfo, partial string) []string {
+	partial = strings.ToLower(strings.TrimSpace(partial))
+	if partial == "" {
+		return nil
+	}
+	var ids []string
+	for _, model := range models {
+		suffix := model.ID
+		if i := strings.LastIndex(suffix, "/"); i >= 0 {
+			suffix = suffix[i+1:]
+		}
+		if strings.HasPrefix(strings.ToLower(suffix), partial) {
+			ids = append(ids, model.ID)
+		}
+	}
+	return ids
 }
 
 func (m Model) runXAISlash(ctx context.Context, fields []string) (string, error) {
@@ -468,6 +664,81 @@ func (m *Model) appendEvents(events ...gateway.EventRecord) {
 	m.events = append(m.events, events...)
 	if len(m.events) > m.cfg.EventLimit {
 		m.events = append([]gateway.EventRecord(nil), m.events[len(m.events)-m.cfg.EventLimit:]...)
+	}
+}
+
+func (m Model) chatLines() []string {
+	var lines []string
+	for _, entry := range m.chat {
+		lines = append(lines, strings.Split(entry, "\n")...)
+	}
+	if m.streaming {
+		lines = append(lines, strings.Split("assistant: "+m.streamBuffer, "\n")...)
+	}
+	return lines
+}
+
+func (m Model) visibleChatLines(lines []string) []string {
+	limit := m.chatBodyHeight()
+	if limit <= 0 || len(lines) <= limit {
+		return lines
+	}
+	maxScroll := len(lines) - limit
+	scroll := m.chatScroll
+	if scroll < 0 {
+		scroll = 0
+	}
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	start := len(lines) - limit - scroll
+	return lines[start : start+limit]
+}
+
+func (m Model) chatBodyHeight() int {
+	if m.height <= 0 {
+		return 0
+	}
+	used := 2
+	if m.err != "" {
+		used++
+	}
+	height := m.height - used
+	if height < 1 {
+		return 1
+	}
+	return height
+}
+
+func (m Model) chatPageSize() int {
+	size := m.chatBodyHeight() - 1
+	if size < 1 {
+		return 1
+	}
+	return size
+}
+
+func (m Model) maxChatScroll() int {
+	lines := m.chatLines()
+	limit := m.chatBodyHeight()
+	if limit <= 0 || len(lines) <= limit {
+		return 0
+	}
+	return len(lines) - limit
+}
+
+func (m *Model) scrollChat(delta int) {
+	m.chatScroll += delta
+	m.clampChatScroll()
+}
+
+func (m *Model) clampChatScroll() {
+	maxScroll := m.maxChatScroll()
+	if m.chatScroll < 0 {
+		m.chatScroll = 0
+	}
+	if m.chatScroll > maxScroll {
+		m.chatScroll = maxScroll
 	}
 }
 

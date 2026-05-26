@@ -19,6 +19,7 @@ import (
 	"github.com/tvmaly/nanogo/core/llm"
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
+	"github.com/tvmaly/nanogo/modules/help"
 	"github.com/tvmaly/nanogo/modules/skills"
 	"github.com/tvmaly/nanogo/modules/transport"
 )
@@ -91,7 +92,7 @@ func (r *Registry) Dispatch(ctx context.Context, req Request) (any, error) {
 }
 
 func reserved(method string) bool {
-	for _, p := range []string{"approvals.", "heartbeats.", "memory.", "config.", "voice.", "adaptive.", "traces."} {
+	for _, p := range []string{"approvals.", "heartbeats.", "memory.", "config.", "voice.", "adaptive.", "traces.", "help."} {
 		if strings.HasPrefix(method, p) {
 			return true
 		}
@@ -160,6 +161,7 @@ type Config struct {
 	ModelCatalog  ModelCatalog
 	Voice         VoiceController
 	RealtimeVoice RealtimeVoiceController
+	Help          help.Service
 }
 
 type Service struct {
@@ -679,6 +681,13 @@ func decode[T any](raw json.RawMessage) (T, error) {
 	return v, nil
 }
 
+func (s *Service) helpService() (help.Service, error) {
+	if s.cfg.Help == nil {
+		return nil, E(CodeUnsupported, "help service is not configured")
+	}
+	return s.cfg.Help, nil
+}
+
 func (s *Service) registerBuiltins() {
 	s.registry.Register("status", func(context.Context, json.RawMessage) (any, error) { return s.Status(), nil })
 	s.registry.Register("agent", func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -835,6 +844,65 @@ func (s *Service) registerBuiltins() {
 			return nil, E(CodeUnsupported, "xai realtime voice controller is not configured")
 		}
 		return s.cfg.RealtimeVoice.Status(ctx)
+	})
+	s.registry.Register("help.search", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		h, err := s.helpService()
+		if err != nil {
+			return nil, err
+		}
+		req, err := decode[help.SearchRequest](raw)
+		if err != nil {
+			return nil, err
+		}
+		return h.Search(ctx, req)
+	})
+	s.registry.Register("help.topic", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		h, err := s.helpService()
+		if err != nil {
+			return nil, err
+		}
+		req, err := decode[help.TopicRequest](raw)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := h.Topic(ctx, req)
+		if errors.Is(err, help.ErrNotFound) {
+			return nil, E(CodeInvalidRequest, err.Error())
+		}
+		return resp, err
+	})
+	s.registry.Register("help.suggest", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		h, err := s.helpService()
+		if err != nil {
+			return nil, err
+		}
+		req, err := decode[help.SuggestRequest](raw)
+		if err != nil {
+			return nil, err
+		}
+		return h.Suggest(ctx, req)
+	})
+	s.registry.Register("help.render", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		h, err := s.helpService()
+		if err != nil {
+			return nil, err
+		}
+		req, err := decode[help.RenderRequest](raw)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := h.Render(ctx, req)
+		if errors.Is(err, help.ErrNotFound) {
+			return nil, E(CodeInvalidRequest, err.Error())
+		}
+		return resp, err
+	})
+	s.registry.Register("help.validate", func(ctx context.Context, _ json.RawMessage) (any, error) {
+		h, err := s.helpService()
+		if err != nil {
+			return nil, err
+		}
+		return h.Validate(ctx, help.ValidateRequest{})
 	})
 	s.registry.Register("events.subscribe", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var req struct {

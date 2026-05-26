@@ -1,0 +1,6 @@
+schema_version: help-pack/v1
+pack_id: test.broken
+name: Broken Link Test Help
+version: 1
+root_topics:
+  - tui.slash_commands

@@ -12,7 +12,7 @@ SKILLS_DIR  := $(CURDIR)/testdata/skills
 	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24 test-14.27 \
 	test-15.17 test-15.18 test-15.19 test-15.5.8 voice-live voice-live-debug \
 	test-19.apple-tts test-19.apple-stt apple-voice-helpers test-19.5.apple-voice-chat \
-	test-19.8
+	test-19.8 test-19.9
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
@@ -303,6 +303,21 @@ test-19.8: build write-config-obs
 		&& echo "$$OUT" | grep -q "tui smoke cost" \
 		&& echo "PASS: TUI OpenRouter smoke" \
 		|| (echo "FAIL: TUI OpenRouter smoke"; exit 1)
+
+# TEST-19.9 — Help system plus OpenRouter-backed TUI smoke
+test-19.9: build write-config-obs
+	@echo ""; echo "=== TEST-19.9: help system and OpenRouter smoke ==="
+	@$(BINARY) help validate
+	@$(BINARY) help search gateway | grep -q "gateway.operations" \
+		&& echo "PASS: help search" \
+		|| (echo "FAIL: help search"; exit 1)
+	@OUT=$$($(BINARY) --config $(CONFIG_OBS) --workspace $(WORKSPACE) --skills $(SKILLS_DIR) tui --smoke); \
+	echo "$$OUT"; \
+	echo "$$OUT" | grep -q "tui smoke models=" \
+		&& echo "$$OUT" | grep -q "PHASE_19_8_OK" \
+		&& echo "$$OUT" | grep -q "tui smoke cost" \
+		&& echo "PASS: Phase 19.9 OpenRouter smoke" \
+		|| (echo "FAIL: Phase 19.9 OpenRouter smoke"; exit 1)
 
 # ── Run all manual tests in phase order ───────────────────────────────────────
 

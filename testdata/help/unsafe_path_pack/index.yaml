@@ -1,0 +1,6 @@
+schema_version: help-pack/v1
+pack_id: test.unsafe
+name: Unsafe Path Test Help
+version: 1
+root_topics:
+  - voice.privacy

@@ -1,0 +1,6 @@
+schema_version: help-pack/v1
+pack_id: test.duplicate
+name: Duplicate Test Help
+version: 1
+root_topics:
+  - tools.contracts

@@ -1,0 +1,9 @@
+schema_version: help-pack/v1
+pack_id: nanogo.builtin
+name: Nanogo Built-in Help
+version: 1
+root_topics:
+  - quickstart.overview
+  - tui.slash_commands
+  - gateway.operations
+  - verification.local

@@ -3,6 +3,7 @@ package gatewayws
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/modules/gateway"
+	"github.com/tvmaly/nanogo/modules/help"
+	helpfake "github.com/tvmaly/nanogo/modules/help/fake"
 	"github.com/tvmaly/nanogo/modules/skills"
 )
 
@@ -58,11 +61,36 @@ func testGatewayServer(t *testing.T) (*httptest.Server, string, *gateway.Service
 		SkillsDir:   dir,
 		SkillRunner: skillRunner{},
 		CostPath:    costPath,
+		Help: &helpfake.Service{
+			SearchResp: help.SearchResponse{Hits: []help.SearchHit{{ID: "tui.slash_commands", Title: "TUI Slash Commands", Summary: "TUI help", Kind: "command", Snippet: "TUI help"}}},
+			TopicResp:  help.TopicResponse{Topic: help.Topic{TopicMeta: help.TopicMeta{ID: "tui.slash_commands", Title: "TUI Slash Commands"}, SourcePaths: []string{"ext/transport/tui"}, Body: "body"}},
+		},
 	})
 	s := New(Config{Path: "/gateway", Auth: AuthConfig{Bearer: "secret"}}, svc)
 	ts := httptest.NewServer(s)
 	t.Cleanup(ts.Close)
 	return ts, "ws" + strings.TrimPrefix(ts.URL, "http") + "/gateway", svc, bus
+}
+
+func TestHelpOperationsWorkOverWebSocket(t *testing.T) {
+	_, url, _, _ := testGatewayServer(t)
+	ctx := context.Background()
+	c := dialAndConnect(t, url)
+	defer c.CloseNow()
+	if err := write(ctx, c, Envelope{Type: "req", ID: "help-search", Method: "help.search", Params: json.RawMessage(`{"query":"tui"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	got := readResponseID(t, c, "help-search")
+	if !got.OK || !strings.Contains(fmt.Sprint(got.Payload), "tui.slash_commands") {
+		t.Fatalf("help.search = %#v", got)
+	}
+	if err := write(ctx, c, Envelope{Type: "req", ID: "help-topic", Method: "help.topic", Params: json.RawMessage(`{"id":"tui.slash_commands"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	got = readResponseID(t, c, "help-topic")
+	if !got.OK || !strings.Contains(fmt.Sprint(got.Payload), "TUI Slash Commands") {
+		t.Fatalf("help.topic = %#v", got)
+	}
 }
 
 func TestConnectRequiredAndAuth(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"github.com/tvmaly/nanogo/core/llm"
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
+	helpfiles "github.com/tvmaly/nanogo/ext/help/files"
 	openaiadapter "github.com/tvmaly/nanogo/ext/llm/openai"
 	"github.com/tvmaly/nanogo/ext/transport/gatewayws"
 	"github.com/tvmaly/nanogo/ext/transport/openaiapi"
@@ -21,6 +22,7 @@ import (
 	"github.com/tvmaly/nanogo/ext/voice/realtime"
 	voicesession "github.com/tvmaly/nanogo/ext/voice/session"
 	"github.com/tvmaly/nanogo/modules/gateway"
+	"github.com/tvmaly/nanogo/modules/help"
 	"github.com/tvmaly/nanogo/modules/tools/builtin"
 )
 
@@ -50,6 +52,11 @@ func buildGatewayRuntime(configPath, skillsDir, workspaceDir, source string) (*g
 	}
 	_ = workspaceDir
 	model := cfg.modelForSource(source)
+	helpSvc, err := buildGatewayHelpService()
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
 	svc := gateway.New(gateway.Config{
 		Provider:  provider,
 		Store:     store,
@@ -71,8 +78,21 @@ func buildGatewayRuntime(configPath, skillsDir, workspaceDir, source string) (*g
 		ModelCatalog:  buildModelCatalog(cfg),
 		Voice:         buildTUIGatewayVoiceController(cfg),
 		RealtimeVoice: buildXAIRealtimeController(workspaceDir),
+		Help:          helpSvc,
 	})
 	return &gatewayRuntime{cfg: cfg, provider: provider, store: store, bus: bus, service: svc, cleanup: cleanup}, nil
+}
+
+func buildGatewayHelpService() (help.Service, error) {
+	pack, err := helpfiles.New(defaultHelpRoot()).Load(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	cat, err := help.NewCatalog(pack)
+	if err != nil {
+		return nil, err
+	}
+	return help.NewService(cat), nil
 }
 
 func buildModelCatalog(cfg *config) gateway.ModelCatalog {
