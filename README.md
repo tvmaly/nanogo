@@ -30,6 +30,7 @@ nanogo is different:
 - **Voice mode** — Phase 19 adds contract-backed speech-to-text and text-to-speech so a child can speak to the tutor and hear responses when a voice provider is configured
 - **Extensible operator interfaces** — Phase 19.7 adds a shared gateway surface so the same tutor runtime can be driven from a local TUI, an OpenAI-compatible HTTP API, or an OpenClaw-style WebSocket gateway
 - **Local interactive help** — Phase 19.9 adds deterministic help topics that can be searched from the CLI, TUI, GatewayWS, and the OpenAI-compatible operations endpoint without calling an LLM
+- **Hardened extension boundaries** — Phase 21.x keeps the kernel small, makes runtime extension registration auditable by capability family, and moves file-backed session persistence into `modules/session`
 
 For parents, Phase 19 voice support matters because it makes tutoring less like typing into a chatbot and more like working with a patient adult helper. Younger learners can answer out loud before they type confidently, parents can turn listening or speaking on and off during a session, and raw microphone audio is not persisted by default.
 
@@ -300,6 +301,13 @@ A useful rule of thumb: `modules/` is the first-party subsystem layer, while `ex
 
 Not every `modules/` package is interfaces-only. `modules/memory`, `modules/skills`, and `modules/tools/builtin` contain default first-party behavior. They stay outside `core/` because they are product/runtime behavior rather than kernel primitives.
 
+Phase 21.x hardens the extension boundary without changing user-facing tutor behavior:
+
+- `core/session` now contains only stable session contracts; the JSONL and metadata-file store lives in `modules/session` and preserves existing `<id>.jsonl` and `<id>.meta.json` compatibility.
+- `cmd/nanogo/extensions.go` groups package-init registrations by LLM providers, transports, schedulers, harness sensors, and adaptive domains/tools, with command-package tests that fail when expected runtime registrations disappear.
+- `modules/gateway` registers operations through feature-family functions for status, chat/sessions/events, skills/tools, costs/models, voice/realtime, and help.
+- Architecture guards now have explicit regression coverage for `core -> modules`, `core -> ext`, and `modules -> ext` import violations.
+
 Phase 17.5 closes runtime-wiring gaps that matter for Phase 18 AgentFlow tutor flows:
 
 - `spawn` is now wired through configured subagent runners in prompt, REPL, skill, heartbeat, and transport-driven turns, so future flow executors can delegate without bypassing nanogo sessions, tools, events, or concurrency limits.
@@ -413,6 +421,7 @@ This table shows each build phase, what AI tutor capability it unlocks, and whet
 | 18 v3 pattern runtime | Contract-backed `ext/agentpatterns` runtime, pattern tools, skill opt-in, voice bridge handoff, trace/checkpoint stores | Tutor workflows can route through single, router, supervisor-worker, sequential, parallel, loop, review, handoff, and human-review patterns without leaking extension code into core or modules | ✅ Complete |
 | 19.7 | Extensible interface surface: shared `modules/gateway`, Bubble Tea TUI, OpenAI-compatible HTTP API, and OpenClaw-style Gateway WebSocket | Operators and apps can drive the same tutor sessions, skills, tools, costs, and events through stable adapter contracts without adding interface logic to `core/` | ✅ Complete |
 | 19.8 | Rich Bubble Tea TUI with slash commands, session-local model switching, model catalog cache, cost lookup, STT/TTS toggles, and xAI realtime controls | The terminal operator can chat, inspect sessions, run skills, monitor costs/events, switch OpenRouter models per session, and control voice state without widening `core/` | ✅ Complete |
+| 21.x | Extension boundary hardening: module-owned session persistence, grouped runtime registrations, gateway operation families, and stronger import-guard evidence | New providers, transports, schedulers, tool sources, adaptive domains, and gateway features can grow without widening `core/` or hiding command composition changes | ✅ Complete |
 
 ---
 

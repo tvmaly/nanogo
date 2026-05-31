@@ -689,7 +689,19 @@ func (s *Service) helpService() (help.Service, error) {
 }
 
 func (s *Service) registerBuiltins() {
+	s.registerStatusDiagnostics()
+	s.registerChatSessionsEvents()
+	s.registerSkillsTools()
+	s.registerCostsModels()
+	s.registerVoiceRealtime()
+	s.registerHelp()
+}
+
+func (s *Service) registerStatusDiagnostics() {
 	s.registry.Register("status", func(context.Context, json.RawMessage) (any, error) { return s.Status(), nil })
+}
+
+func (s *Service) registerChatSessionsEvents() {
 	s.registry.Register("agent", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		req, err := decode[ChatRequest](raw)
 		if err != nil {
@@ -734,6 +746,16 @@ func (s *Service) registerBuiltins() {
 		}
 		return map[string]bool{"deleted": true}, s.DeleteSession(req.ID)
 	})
+	s.registry.Register("events.subscribe", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var req struct {
+			Session string `json:"session"`
+		}
+		_ = json.Unmarshal(raw, &req)
+		return map[string]any{"subscribed": true, "session": req.Session}, nil
+	})
+}
+
+func (s *Service) registerSkillsTools() {
 	s.registry.Register("skills.list", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var req struct {
 			All bool `json:"all"`
@@ -762,6 +784,9 @@ func (s *Service) registerBuiltins() {
 		_ = json.Unmarshal(raw, &req)
 		return s.ToolCatalog(ctx, req.Session)
 	})
+}
+
+func (s *Service) registerCostsModels() {
 	s.registry.Register("costs.summary", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var req struct {
 			Session string `json:"session"`
@@ -796,6 +821,9 @@ func (s *Service) registerBuiltins() {
 		s.FlushModelCache()
 		return map[string]bool{"flushed": true}, nil
 	})
+}
+
+func (s *Service) registerVoiceRealtime() {
 	s.registry.Register("voice.state", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		if s.cfg.Voice == nil {
 			return nil, E(CodeUnsupported, "voice controller is not configured")
@@ -845,6 +873,9 @@ func (s *Service) registerBuiltins() {
 		}
 		return s.cfg.RealtimeVoice.Status(ctx)
 	})
+}
+
+func (s *Service) registerHelp() {
 	s.registry.Register("help.search", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		h, err := s.helpService()
 		if err != nil {
@@ -903,13 +934,6 @@ func (s *Service) registerBuiltins() {
 			return nil, err
 		}
 		return h.Validate(ctx, help.ValidateRequest{})
-	})
-	s.registry.Register("events.subscribe", func(_ context.Context, raw json.RawMessage) (any, error) {
-		var req struct {
-			Session string `json:"session"`
-		}
-		_ = json.Unmarshal(raw, &req)
-		return map[string]any{"subscribed": true, "session": req.Session}, nil
 	})
 }
 

@@ -9,7 +9,7 @@ import (
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
 	fakellm "github.com/tvmaly/nanogo/core/llm/fake"
-	"github.com/tvmaly/nanogo/core/session"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/skills"
 )
 
@@ -31,7 +31,7 @@ func TestSkillRunner_SetsCtxKeySkill(t *testing.T) {
 	})
 
 	bus := event.NewBus()
-	store := session.NewStore(t.TempDir(), nil)
+	store := modulesession.NewStore(t.TempDir(), nil)
 	runner := &cliSkillRunner{provider: provider, store: store, bus: bus}
 
 	_, err := runner.RunSkill(context.Background(), skills.RunSkillOpts{
@@ -69,7 +69,7 @@ func TestSkillRunner_ToolsAllowlist(t *testing.T) {
 	})
 
 	bus := event.NewBus()
-	store := session.NewStore(t.TempDir(), nil)
+	store := modulesession.NewStore(t.TempDir(), nil)
 	runner := &cliSkillRunner{provider: provider, store: store, bus: bus}
 
 	_, err := runner.RunSkill(context.Background(), skills.RunSkillOpts{

@@ -13,11 +13,11 @@ import (
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
 	fakellm "github.com/tvmaly/nanogo/core/llm/fake"
-	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/modules/gateway"
 	"github.com/tvmaly/nanogo/modules/help"
 	helpfake "github.com/tvmaly/nanogo/modules/help/fake"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/skills"
 )
 
@@ -103,7 +103,7 @@ func (f *fakeRealtime) Status(context.Context) (gateway.RealtimeVoiceState, erro
 
 func TestModelLoadsAndViewsPanes(t *testing.T) {
 	provider := fakellm.New([]llm.Chunk{{TextDelta: "ok"}, {FinishReason: "stop"}})
-	svc := gateway.New(gateway.Config{Provider: provider, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}, Model: "m"})
+	svc := gateway.New(gateway.Config{Provider: provider, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}, Model: "m"})
 	m := NewModel(svc)
 	msg := m.loadCmd()().(loadedMsg)
 	next, _ := m.Update(msg)
@@ -120,7 +120,7 @@ func TestModelLoadsAndViewsPanes(t *testing.T) {
 
 func TestModelChatUpdate(t *testing.T) {
 	provider := fakellm.New([]llm.Chunk{{TextDelta: "ok"}, {FinishReason: "stop"}})
-	svc := gateway.New(gateway.Config{Provider: provider, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}})
+	svc := gateway.New(gateway.Config{Provider: provider, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}})
 	m := NewModel(svc)
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hi")})
 	m = next.(Model)
@@ -138,7 +138,7 @@ func TestModelChatUpdate(t *testing.T) {
 }
 
 func TestChatPaneScrollsLongAssistantResponse(t *testing.T) {
-	svc := gateway.New(gateway.Config{Provider: fakellm.New(nil), Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}})
+	svc := gateway.New(gateway.Config{Provider: fakellm.New(nil), Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}})
 	m := NewModel(svc)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
 	m = next.(Model)
@@ -175,7 +175,7 @@ func TestChatPaneScrollsLongAssistantResponse(t *testing.T) {
 }
 
 func TestModelRendersGatewayErrors(t *testing.T) {
-	svc := gateway.New(gateway.Config{Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	svc := gateway.New(gateway.Config{Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
 	m := NewModel(svc)
 	msg := m.loadCmd()().(loadedMsg)
 	if msg.err == nil {
@@ -194,7 +194,7 @@ func TestModelRendersGatewayErrors(t *testing.T) {
 }
 
 func TestModelRendersStableEmptyStates(t *testing.T) {
-	svc := gateway.New(gateway.Config{Provider: fakellm.New(nil), Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}, Model: "m"})
+	svc := gateway.New(gateway.Config{Provider: fakellm.New(nil), Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}, Model: "m"})
 	m := NewModel(svc)
 	msg := m.loadCmd()().(loadedMsg)
 	next, _ := m.Update(msg)
@@ -217,7 +217,7 @@ func TestModelCostSlashUsesCurrentSession(t *testing.T) {
 	if err := os.WriteFile(costPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	svc := gateway.New(gateway.Config{CostPath: costPath, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	svc := gateway.New(gateway.Config{CostPath: costPath, Source: source{}, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
 	m := NewModel(svc)
 	out, err := m.runSlash(context.Background(), "/cost")
 	if err != nil {
@@ -231,7 +231,7 @@ func TestModelCostSlashUsesCurrentSession(t *testing.T) {
 func TestModelSlashModelCommandsUseCacheAndSessionOverride(t *testing.T) {
 	now := time.Unix(1000, 0)
 	cat := &fakeCatalog{models: []gateway.ModelInfo{{ID: "m1"}, {ID: "m2"}}}
-	svc := gateway.New(gateway.Config{Model: "default", ModelCatalog: cat, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Now: func() time.Time { return now }})
+	svc := gateway.New(gateway.Config{Model: "default", ModelCatalog: cat, Source: source{}, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Now: func() time.Time { return now }})
 	m := NewModel(svc)
 	out, err := m.runSlash(context.Background(), "/model current")
 	if err != nil || !strings.Contains(out, "default") {
@@ -278,7 +278,7 @@ func TestModelSlashSearchMatchesModelSuffixCaseInsensitive(t *testing.T) {
 		{ID: "xai/grok-code-fast-1"},
 		{ID: "local/gpt-oss-20b"},
 	}}
-	svc := gateway.New(gateway.Config{ModelCatalog: cat, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	svc := gateway.New(gateway.Config{ModelCatalog: cat, Source: source{}, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
 	m := NewModel(svc)
 
 	out, err := m.runSlash(context.Background(), "/model search gpt")
@@ -302,7 +302,7 @@ func TestModelSlashSearchMatchesModelSuffixCaseInsensitive(t *testing.T) {
 }
 
 func TestModelSlashExitQuitsTUI(t *testing.T) {
-	svc := gateway.New(gateway.Config{Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	svc := gateway.New(gateway.Config{Source: source{}, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
 	m := NewModel(svc)
 	for _, r := range []rune("/exit") {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -324,7 +324,7 @@ func TestModelSlashExitQuitsTUI(t *testing.T) {
 func TestModelVoiceAndXAICommands(t *testing.T) {
 	vc := &fakeVoice{}
 	rt := &fakeRealtime{state: gateway.RealtimeVoiceState{Provider: "xai", Model: "grok", SessionID: "voice-1"}}
-	svc := gateway.New(gateway.Config{Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Voice: vc, RealtimeVoice: rt})
+	svc := gateway.New(gateway.Config{Source: source{}, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Voice: vc, RealtimeVoice: rt})
 	m := NewModel(svc)
 	out, err := m.runSlash(context.Background(), "/stt on")
 	if err != nil || !strings.Contains(out, "stt=true") {
@@ -350,7 +350,7 @@ func TestModelVoiceAndXAICommands(t *testing.T) {
 
 func TestHelpSlashUsesGatewayAndDoesNotAppendChat(t *testing.T) {
 	fh := &helpfake.Service{SuggestResp: help.SuggestResponse{Hits: []help.SearchHit{{ID: "tui.slash_commands", Summary: "TUI commands", Kind: "command", Title: "TUI Slash Commands", Snippet: "TUI commands"}}}}
-	svc := gateway.New(gateway.Config{Help: fh, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	svc := gateway.New(gateway.Config{Help: fh, Source: source{}, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
 	m := NewModel(svc)
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/help")})
 	m = next.(Model)
@@ -381,7 +381,7 @@ func TestHelpSlashSearchAndTopicUseGateway(t *testing.T) {
 		TopicResp:  help.TopicResponse{Topic: help.Topic{TopicMeta: help.TopicMeta{ID: "voice.privacy", Title: "Voice Privacy", Related: []string{"tui.slash_commands"}}, SourcePaths: []string{"ext/voice"}, Sections: map[string]string{"verification": "Run tests."}}},
 		RenderResp: help.RenderResponse{TopicID: "voice.privacy", Format: help.FormatTUI, Text: "Voice Privacy\nRelated: tui.slash_commands\n"},
 	}
-	svc := gateway.New(gateway.Config{Help: fh, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	svc := gateway.New(gateway.Config{Help: fh, Source: source{}, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
 	m := NewModel(svc)
 	msg := m.runHelpSlash(context.Background(), "/help voice privacy")
 	next, _ := m.Update(msg)
@@ -398,7 +398,7 @@ func TestHelpSlashSearchAndTopicUseGateway(t *testing.T) {
 }
 
 func TestQuestionMarkIsNormalInput(t *testing.T) {
-	svc := gateway.New(gateway.Config{Help: &helpfake.Service{}, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	svc := gateway.New(gateway.Config{Help: &helpfake.Service{}, Source: source{}, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
 	m := NewModel(svc)
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
 	m = next.(Model)
@@ -408,7 +408,7 @@ func TestQuestionMarkIsNormalInput(t *testing.T) {
 }
 
 func TestChatAcceptsPrintableShortcutKeys(t *testing.T) {
-	svc := gateway.New(gateway.Config{Help: &helpfake.Service{}, Source: source{}, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
+	svc := gateway.New(gateway.Config{Help: &helpfake.Service{}, Source: source{}, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus()})
 	m := NewModel(svc)
 	for _, r := range []rune("/model current") {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -425,7 +425,7 @@ func TestModelSessionsSkillsStreamingAndBoundedEvents(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "demo.md"), []byte("---\nname: demo\ndescription: Demo\n---\nRun it\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	svc := gateway.New(gateway.Config{Provider: fakellm.New([]llm.Chunk{{TextDelta: "ok"}, {FinishReason: "stop"}}), Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}, SkillsDir: dir, SkillRunner: runner})
+	svc := gateway.New(gateway.Config{Provider: fakellm.New([]llm.Chunk{{TextDelta: "ok"}, {FinishReason: "stop"}}), Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}, SkillsDir: dir, SkillRunner: runner})
 	_, _ = svc.CreateSession("tui")
 	_, _ = svc.CreateSession("other")
 	m := NewModelWithConfig(svc, Config{EventLimit: 2})

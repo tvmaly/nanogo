@@ -125,6 +125,16 @@ func RegisterDomain(name string, f AdapterFactory) {
 	domains[name] = f
 }
 
+func RegisteredDomains() []string {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	names := make([]string, 0, len(domains))
+	for name := range domains {
+		names = append(names, name)
+	}
+	return names
+}
+
 func BuildDomain(name string, cfg json.RawMessage) (DomainAdapter, error) {
 	regMu.RLock()
 	f, ok := domains[name]

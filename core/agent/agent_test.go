@@ -560,6 +560,7 @@ func TestSubagentRunner_RealExecution(t *testing.T) {
 		Source:    faketools.NewSource(),
 		Bus:       bus,
 		Semaphore: agent.NewSubagentSemaphore(4),
+		Store:     fakesession.NewStore(),
 	})
 
 	result, err := runner.RunSubagent(context.Background(), tools.SubagentOpts{
@@ -603,6 +604,7 @@ func TestSubagentRunner_ToolsAllowlist(t *testing.T) {
 		Source:    faketools.NewSource(faketools.New("read_file", ""), faketools.New("bash", "")),
 		Bus:       bus,
 		Semaphore: agent.NewSubagentSemaphore(4),
+		Store:     fakesession.NewStore(),
 	})
 
 	_, err := runner.RunSubagent(context.Background(), tools.SubagentOpts{
@@ -654,6 +656,7 @@ func TestSubagentRunner_SemaphoreGates(t *testing.T) {
 		Source:    faketools.NewSource(),
 		Bus:       bus,
 		Semaphore: agent.NewSubagentSemaphore(2),
+		Store:     fakesession.NewStore(),
 	})
 
 	var wg sync.WaitGroup

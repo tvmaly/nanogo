@@ -13,11 +13,11 @@ import (
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
 	fakellm "github.com/tvmaly/nanogo/core/llm/fake"
-	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/modules/gateway"
 	"github.com/tvmaly/nanogo/modules/help"
 	helpfake "github.com/tvmaly/nanogo/modules/help/fake"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 )
 
 type testSource struct{}
@@ -38,7 +38,7 @@ func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	provider := fakellm.New([]llm.Chunk{{TextDelta: "ok"}, {FinishReason: "stop"}})
 	svc := gateway.New(gateway.Config{
-		Provider: provider, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: testSource{}, Model: "m",
+		Provider: provider, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: testSource{}, Model: "m",
 		Help: &helpfake.Service{SearchResp: help.SearchResponse{Hits: []help.SearchHit{{ID: "skills.markdown", Title: "Skills", Summary: "Skills help", Kind: "guide", Snippet: "Skills help"}}}},
 	})
 	return New(Config{Auth: AuthConfig{Bearer: "secret"}}, svc)
@@ -70,7 +70,7 @@ func TestBearerAuthEnforced(t *testing.T) {
 
 func TestInsecureAllowNoAuthAllowsProtectedEndpoints(t *testing.T) {
 	provider := fakellm.New([]llm.Chunk{{TextDelta: "ok"}, {FinishReason: "stop"}})
-	svc := gateway.New(gateway.Config{Provider: provider, Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: testSource{}, Model: "m"})
+	svc := gateway.New(gateway.Config{Provider: provider, Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: testSource{}, Model: "m"})
 	s := New(Config{Auth: AuthConfig{InsecureAllowNoAuth: true}}, svc)
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
@@ -192,7 +192,7 @@ func TestNanogoControlEndpointsUseGatewayService(t *testing.T) {
 	provider := fakellm.New([]llm.Chunk{{TextDelta: "ok"}, {FinishReason: "stop"}})
 	svc := gateway.New(gateway.Config{
 		Provider:  provider,
-		Store:     session.NewStore(t.TempDir(), nil),
+		Store:     modulesession.NewStore(t.TempDir(), nil),
 		Bus:       event.NewBus(),
 		Source:    testSource{},
 		Model:     "m",

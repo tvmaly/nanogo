@@ -15,6 +15,7 @@ import (
 	fakellm "github.com/tvmaly/nanogo/core/llm/fake"
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/skills"
 )
 
@@ -71,6 +72,57 @@ func TestRegistryDispatchesStatus(t *testing.T) {
 	}
 }
 
+func TestGatewayRegistersOperationsByFeatureFamily(t *testing.T) {
+	t.Parallel()
+	methods := New(Config{}).Status().Methods
+	families := map[string][]string{
+		"status/diagnostics": {"status"},
+		"chat/sessions/events": {
+			"agent",
+			"sessions.create",
+			"sessions.get",
+			"sessions.messages",
+			"sessions.list",
+			"sessions.delete",
+			"events.subscribe",
+		},
+		"skills/tools": {
+			"skills.list",
+			"skills.run",
+			"tools.catalog",
+			"tools.effective",
+		},
+		"costs/models": {
+			"costs.summary",
+			"models.current",
+			"models.use",
+			"models.list",
+			"models.flush",
+		},
+		"voice/realtime": {
+			"voice.state",
+			"voice.update",
+			"xai.start",
+			"xai.stop",
+			"xai.status",
+		},
+		"help": {
+			"help.search",
+			"help.topic",
+			"help.suggest",
+			"help.render",
+			"help.validate",
+		},
+	}
+	for family, want := range families {
+		for _, method := range want {
+			if !contains(methods, method) {
+				t.Fatalf("%s methods = %v, missing %q", family, methods, method)
+			}
+		}
+	}
+}
+
 func TestReservedNamespacesReturnUnsupported(t *testing.T) {
 	t.Parallel()
 	svc := New(Config{})
@@ -91,7 +143,7 @@ func TestSubmitChatCollectsEventsAndMessages(t *testing.T) {
 	})
 	svc := New(Config{
 		Provider: provider,
-		Store:    session.NewStore(t.TempDir(), nil),
+		Store:    modulesession.NewStore(t.TempDir(), nil),
 		Bus:      event.NewBus(),
 		Source:   source{},
 		Model:    "test-model",
@@ -121,7 +173,7 @@ func TestStreamChatEmitsDeltasThenDone(t *testing.T) {
 	})
 	svc := New(Config{
 		Provider: provider,
-		Store:    session.NewStore(t.TempDir(), nil),
+		Store:    modulesession.NewStore(t.TempDir(), nil),
 		Bus:      event.NewBus(),
 		Source:   source{},
 	})
@@ -151,7 +203,7 @@ func TestStreamChatEmitsDeltasThenDone(t *testing.T) {
 
 func TestSessionOperationsCreateInspectMessagesAndDelete(t *testing.T) {
 	t.Parallel()
-	svc := New(Config{Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}})
+	svc := New(Config{Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}})
 	payload, err := svc.Dispatch(context.Background(), Request{Method: "sessions.create", Params: json.RawMessage(`{"id":"s1"}`)})
 	if err != nil {
 		t.Fatalf("sessions.create: %v", err)
@@ -194,7 +246,7 @@ func TestSkillsListAndRunUseExistingSkillsModule(t *testing.T) {
 	}
 	r := &runner{}
 	svc := New(Config{
-		Store:       session.NewStore(t.TempDir(), nil),
+		Store:       modulesession.NewStore(t.TempDir(), nil),
 		Bus:         event.NewBus(),
 		Source:      source{},
 		SkillsDir:   dir,
@@ -215,7 +267,7 @@ func TestSkillsListAndRunUseExistingSkillsModule(t *testing.T) {
 
 func TestToolCatalogAndEffectiveUseRuntimeSource(t *testing.T) {
 	t.Parallel()
-	svc := New(Config{Store: session.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}})
+	svc := New(Config{Store: modulesession.NewStore(t.TempDir(), nil), Bus: event.NewBus(), Source: source{}})
 	ts, err := svc.ToolCatalog(context.Background(), "s1")
 	if err != nil || len(ts) != 1 || ts[0].Name != "sample" {
 		t.Fatalf("ToolCatalog = %#v, %v", ts, err)
@@ -286,7 +338,7 @@ func TestGatewayTransportAppPreservesTransportCompatibility(t *testing.T) {
 	r := &runner{}
 	svc := New(Config{
 		Provider:    provider,
-		Store:       session.NewStore(t.TempDir(), nil),
+		Store:       modulesession.NewStore(t.TempDir(), nil),
 		Bus:         event.NewBus(),
 		Source:      source{},
 		SkillsDir:   dir,
@@ -322,7 +374,7 @@ func TestSessionModelOverrideIsLocalToSession(t *testing.T) {
 	provider := &captureProvider{}
 	svc := New(Config{
 		Provider: provider,
-		Store:    session.NewStore(t.TempDir(), nil),
+		Store:    modulesession.NewStore(t.TempDir(), nil),
 		Bus:      event.NewBus(),
 		Source:   source{},
 		Model:    "default-model",

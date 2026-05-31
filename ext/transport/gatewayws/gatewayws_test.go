@@ -15,11 +15,11 @@ import (
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
 	fakellm "github.com/tvmaly/nanogo/core/llm/fake"
-	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/modules/gateway"
 	"github.com/tvmaly/nanogo/modules/help"
 	helpfake "github.com/tvmaly/nanogo/modules/help/fake"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/skills"
 )
 
@@ -55,7 +55,7 @@ func testGatewayServer(t *testing.T) (*httptest.Server, string, *gateway.Service
 	bus := event.NewBus()
 	svc := gateway.New(gateway.Config{
 		Provider:    provider,
-		Store:       session.NewStore(t.TempDir(), nil),
+		Store:       modulesession.NewStore(t.TempDir(), nil),
 		Bus:         bus,
 		Source:      source{},
 		SkillsDir:   dir,

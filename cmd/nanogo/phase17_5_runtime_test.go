@@ -11,9 +11,9 @@ import (
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
 	fakellm "github.com/tvmaly/nanogo/core/llm/fake"
-	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/modules/memory"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/skills"
 	"github.com/tvmaly/nanogo/modules/transport"
 )
@@ -43,7 +43,7 @@ func TestRunSingleShotConfiguresSpawnRunner(t *testing.T) {
 		return ch, nil
 	})
 
-	err := runSingleShot(context.Background(), &config{}, provider, session.NewStore(t.TempDir(), nil), event.NewBus(), nil, "use spawn", "model-a", "cli")
+	err := runSingleShot(context.Background(), &config{}, provider, modulesession.NewStore(t.TempDir(), nil), event.NewBus(), nil, "use spawn", "model-a", "cli")
 	if err != nil {
 		t.Fatalf("runSingleShot: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestSkillRunnerConfiguresSpawnRunnerAndToolAllowlist(t *testing.T) {
 		return ch, nil
 	})
 
-	runner := &cliSkillRunner{provider: provider, store: session.NewStore(t.TempDir(), nil), bus: event.NewBus(), cfg: &config{}}
+	runner := &cliSkillRunner{provider: provider, store: modulesession.NewStore(t.TempDir(), nil), bus: event.NewBus(), cfg: &config{}}
 	_, err := runner.RunSkill(context.Background(), skills.RunSkillOpts{
 		SkillName: "delegating-skill",
 		UserMsg:   "delegate",
@@ -92,7 +92,7 @@ func TestBuildSubagentRunnerUsesConfigLimits(t *testing.T) {
 	cfg.Subagents.MaxConcurrent = 1
 	cfg.Subagents.TimeoutS = 1
 	src := tools.Source(&emptySource{})
-	runner := buildSubagentRunner(cfg, fakellm.New(), src, event.NewBus(), session.NewStore(t.TempDir(), nil))
+	runner := buildSubagentRunner(cfg, fakellm.New(), src, event.NewBus(), modulesession.NewStore(t.TempDir(), nil))
 	if runner == nil {
 		t.Fatal("runner is nil")
 	}
@@ -106,7 +106,7 @@ func TestTransportAppSubmitRunsAgentLoop(t *testing.T) {
 	app := newTransportApp(transportAppConfig{
 		Cfg:      &config{},
 		Provider: provider,
-		Store:    session.NewStore(t.TempDir(), nil),
+		Store:    modulesession.NewStore(t.TempDir(), nil),
 		Bus:      bus,
 		MemStore: mustMemoryStore(t),
 		Model:    "model-a",

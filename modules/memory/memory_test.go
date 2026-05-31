@@ -11,8 +11,8 @@ import (
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/llm"
 	llmfake "github.com/tvmaly/nanogo/core/llm/fake"
-	sessionpkg "github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/modules/memory"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 )
 
 func tempStore(t *testing.T) *memory.Store {
@@ -86,7 +86,7 @@ func TestConsolidatorThreshold(t *testing.T) {
 	t.Parallel()
 	s := tempStore(t)
 	bus := event.NewBus()
-	sessionStore := sessionpkg.NewStore(t.TempDir(), nil)
+	sessionStore := modulesession.NewStore(t.TempDir(), nil)
 
 	// Create a session with messages and persist it so Load works.
 	sess, _ := sessionStore.Create("sess1")
@@ -148,7 +148,7 @@ func TestConsolidatorFailure(t *testing.T) {
 	t.Parallel()
 	s := tempStore(t)
 	bus := event.NewBus()
-	sessionStore := sessionpkg.NewStore(t.TempDir(), nil)
+	sessionStore := modulesession.NewStore(t.TempDir(), nil)
 
 	sess, _ := sessionStore.Create("sess-fail")
 	for i := 0; i < 25; i++ {

@@ -23,6 +23,18 @@ if (cd "$ROOT" && scripts/check_imports.sh >/tmp/check_imports_core.out 2>&1); t
 fi
 
 rm "$ROOT/core/bad/bad.go"
+cat > "$ROOT/core/bad/bad.go" <<'EOF'
+package bad
+
+import _ "github.com/tvmaly/nanogo/modules/x"
+EOF
+
+if (cd "$ROOT" && scripts/check_imports.sh >/tmp/check_imports_core_modules.out 2>&1); then
+  echo "check_imports_test: expected core modules import violation" >&2
+  exit 1
+fi
+
+rm "$ROOT/core/bad/bad.go"
 cat > "$ROOT/modules/bad/bad.go" <<'EOF'
 package bad
 

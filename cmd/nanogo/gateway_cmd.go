@@ -23,6 +23,7 @@ import (
 	voicesession "github.com/tvmaly/nanogo/ext/voice/session"
 	"github.com/tvmaly/nanogo/modules/gateway"
 	"github.com/tvmaly/nanogo/modules/help"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/tools/builtin"
 )
 
@@ -45,7 +46,7 @@ func buildGatewayRuntime(configPath, skillsDir, workspaceDir, source string) (*g
 		return nil, err
 	}
 	bus := event.NewBus()
-	store := session.NewStore(os.TempDir(), nil)
+	store := modulesession.NewStore(os.TempDir(), nil)
 	cleanup, err := startObs(context.Background(), bus, cfg)
 	if err != nil {
 		return nil, err

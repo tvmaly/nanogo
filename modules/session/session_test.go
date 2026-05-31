@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/tvmaly/nanogo/core/llm"
-	"github.com/tvmaly/nanogo/core/session"
+	coresession "github.com/tvmaly/nanogo/core/session"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 )
 
 // --- TEST-2.9: Session persistence: JSONL roundtrip ---
@@ -18,7 +19,7 @@ import (
 func TestJSONLRoundtrip(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	store := session.NewStore(dir, nil)
+	store := modulesession.NewStore(dir, nil)
 
 	sess, err := store.Create("sess-1")
 	if err != nil {
@@ -68,7 +69,7 @@ func TestJSONLRoundtrip(t *testing.T) {
 func TestSessionResume(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	store := session.NewStore(dir, nil)
+	store := modulesession.NewStore(dir, nil)
 
 	sess, _ := store.Create("sess-resume")
 	sess.Append(llm.Message{Role: "user", Content: "question"})
@@ -78,8 +79,8 @@ func TestSessionResume(t *testing.T) {
 	turnID := "turn-1"
 	ch := sess.SetWaiting(turnID)
 
-	if sess.GetStatus() != session.StatusWaiting {
-		t.Errorf("status = %v, want %v", sess.GetStatus(), session.StatusWaiting)
+	if sess.GetStatus() != coresession.StatusWaiting {
+		t.Errorf("status = %v, want %v", sess.GetStatus(), coresession.StatusWaiting)
 	}
 
 	// Resume in another goroutine
@@ -98,7 +99,7 @@ func TestSessionResume(t *testing.T) {
 	if answer != "the answer" {
 		t.Errorf("answer = %q, want %q", answer, "the answer")
 	}
-	if sess.GetStatus() != session.StatusActive {
+	if sess.GetStatus() != coresession.StatusActive {
 		t.Errorf("status after resume = %v, want active", sess.GetStatus())
 	}
 }
@@ -110,7 +111,7 @@ func TestSessionTTL(t *testing.T) {
 	dir := t.TempDir()
 
 	fakeClock := &manualClock{now: time.Now()}
-	store := session.NewStore(dir, fakeClock)
+	store := modulesession.NewStore(dir, fakeClock)
 
 	// Create a session in waiting state
 	old, _ := store.Create("old-session")
@@ -148,7 +149,7 @@ func TestSessionTTL(t *testing.T) {
 func TestBindingSessionIsolation(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	store := session.NewStore(dir, nil)
+	store := modulesession.NewStore(dir, nil)
 
 	sess, err := store.Create("sess-binding")
 	if err != nil {

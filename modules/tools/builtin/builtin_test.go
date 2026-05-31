@@ -14,6 +14,7 @@ import (
 	"github.com/tvmaly/nanogo/core/event"
 	"github.com/tvmaly/nanogo/core/session"
 	"github.com/tvmaly/nanogo/core/tools"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/tools/builtin"
 )
 
@@ -332,7 +333,7 @@ func TestAskUserSetsSessionWaiting(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	store := session.NewStore(dir, nil)
+	store := modulesession.NewStore(dir, nil)
 	sess, err := store.Create("waiting-sess")
 	if err != nil {
 		t.Fatal(err)

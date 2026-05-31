@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync/atomic"
 
 	"github.com/tvmaly/nanogo/core/contracts"
@@ -85,7 +84,7 @@ func (r *SubagentRunner) RunSubagent(ctx context.Context, opts tools.SubagentOpt
 
 	store := r.cfg.Store
 	if store == nil {
-		store = session.NewStore(os.TempDir(), nil)
+		return "", fmt.Errorf("subagent session store is required")
 	}
 	id := fmt.Sprintf("subagent-%s-%d", opts.ParentSession, r.counter.Add(1))
 	sess, err := store.Create(id)

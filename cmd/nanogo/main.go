@@ -24,18 +24,9 @@ import (
 	"github.com/tvmaly/nanogo/ext/agentpatterns"
 	costobs "github.com/tvmaly/nanogo/ext/obs/cost"
 	"github.com/tvmaly/nanogo/modules/memory"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/skills"
 	"github.com/tvmaly/nanogo/modules/tools/builtin"
-	// Register extensions via init()
-	_ "github.com/tvmaly/nanogo/ext/adaptive/domains/tutorruntime"
-	_ "github.com/tvmaly/nanogo/ext/adaptive/tools"
-	_ "github.com/tvmaly/nanogo/ext/llm/openai"
-	_ "github.com/tvmaly/nanogo/ext/llm/router"
-	_ "github.com/tvmaly/nanogo/ext/scheduler/stdlib"
-	_ "github.com/tvmaly/nanogo/ext/transport/cli"
-	_ "github.com/tvmaly/nanogo/ext/transport/repl"
-	_ "github.com/tvmaly/nanogo/ext/transport/rest"
-	_ "github.com/tvmaly/nanogo/ext/transport/webui"
 )
 
 const version = "0.15.0"
@@ -132,7 +123,7 @@ func main() {
 	}
 
 	bus := event.NewBus()
-	store := session.NewStore(os.TempDir(), nil)
+	store := modulesession.NewStore(os.TempDir(), nil)
 	cleanup, err := startObs(context.Background(), bus, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "obs error: %v\n", err)
@@ -661,7 +652,7 @@ func skillRun(args []string, skillsDir string) error {
 	}
 
 	bus := event.NewBus()
-	store := session.NewStore(os.TempDir(), nil)
+	store := modulesession.NewStore(os.TempDir(), nil)
 	runner := &cliSkillRunner{provider: provider, store: store, bus: bus, model: cfg.modelForSource("cli"), cfg: cfg}
 	d := buildSkillDispatcher(loader, runner, cfg)
 

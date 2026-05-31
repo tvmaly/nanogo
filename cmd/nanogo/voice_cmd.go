@@ -29,6 +29,7 @@ import (
 	"github.com/tvmaly/nanogo/ext/voice/providers/xai"
 	"github.com/tvmaly/nanogo/ext/voice/realtime"
 	voicesession "github.com/tvmaly/nanogo/ext/voice/session"
+	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/tools/builtin"
 	voice "github.com/tvmaly/nanogo/modules/voice"
 )
@@ -496,7 +497,7 @@ func newAgentVoiceGateway(cfg agentVoiceGatewayConfig) *agentVoiceGateway {
 		cfg.Cfg = &config{}
 	}
 	if cfg.Store == nil {
-		cfg.Store = session.NewStore(os.TempDir(), nil)
+		cfg.Store = modulesession.NewStore(os.TempDir(), nil)
 	}
 	if cfg.Bus == nil {
 		cfg.Bus = event.NewBus()
