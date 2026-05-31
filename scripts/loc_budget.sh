@@ -48,7 +48,7 @@ check "core/config"    100
 check "modules/memory"    550
 check "modules/skills"    250
 check "modules/heartbeat" 120
-check "modules/obs"        70
+check "modules/obs"       700
 check "modules/transport"  60
 check "modules/scheduler"  40
 

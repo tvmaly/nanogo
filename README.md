@@ -188,6 +188,36 @@ Everything is stored as plain text files in `~/.nanogo/workspace/` on your own m
 
 ---
 
+## Agent-readable observability
+
+nanogo can write schema-versioned observation records for agents and research loops as JSONL. Add the `jsonl` observer to your config:
+
+```json
+{
+  "obs": [
+    {
+      "driver": "jsonl",
+      "config": {
+        "root": ".nanogo/obs",
+        "failure_policy": "best_effort",
+        "flush_on_error": true,
+        "flush_on_run_finish": true
+      }
+    }
+  ]
+}
+```
+
+By default this writes one JSON object per line to `.nanogo/obs/observations.jsonl`. Each record includes `schema_version`, `id`, `type`, `time`, event lineage in `attributes.event_kind` when it comes from the runtime event bus, optional artifact references, error details, repair hints, and links. Query contracts are present for future readers; the JSONL store currently returns a typed not-implemented error for queries.
+
+Run the live OpenRouter smoke suite with:
+
+```bash
+OPENROUTER_API_KEY=sk-or-v1-... make test
+```
+
+---
+
 ## Phase 19 voice support
 
 Phase 19 separates voice into stable contracts and optional providers:

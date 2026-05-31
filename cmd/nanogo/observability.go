@@ -12,6 +12,7 @@ import (
 	fileobs "github.com/tvmaly/nanogo/ext/obs/file"
 	slogobs "github.com/tvmaly/nanogo/ext/obs/slog"
 	"github.com/tvmaly/nanogo/modules/obs"
+	obsjsonl "github.com/tvmaly/nanogo/modules/obs/jsonl"
 )
 
 func startObs(ctx context.Context, bus event.Bus, cfg *config) (func(), error) {
@@ -46,6 +47,25 @@ func startObs(ctx context.Context, bus event.Bus, cfg *config) (func(), error) {
 			subCtx, cancel := context.WithCancel(ctx)
 			cancels = append(cancels, cancel)
 			go recordEvents(subCtx, bus, t.Record)
+		case "jsonl":
+			var c obsjsonl.Config
+			if err := json.Unmarshal(entry.Config, &c); err != nil {
+				return nil, err
+			}
+			c.Root = expandPath(c.Root)
+			c.Path = expandPath(c.Path)
+			store, err := obsjsonl.New(c)
+			if err != nil {
+				return nil, err
+			}
+			observer := obs.NewEventObserver(store, obs.ObserverConfig{
+				FailurePolicy:    c.FailurePolicy,
+				FlushOnError:     c.FlushOnError,
+				FlushOnRunFinish: c.FlushOnRunFinish,
+			})
+			subCtx, cancel := context.WithCancel(ctx)
+			cancels = append(cancels, func() { cancel(); _ = store.Close() })
+			go recordEvents(subCtx, bus, observer.Observe)
 		default:
 			return nil, fmt.Errorf("obs driver: unknown driver %q", entry.Driver)
 		}

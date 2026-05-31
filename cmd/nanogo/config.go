@@ -161,7 +161,7 @@ func (c *config) validate() error {
 	}
 	for i, entry := range c.Obs {
 		switch entry.Driver {
-		case "slog", "file", "cost":
+		case "slog", "file", "cost", "jsonl":
 		default:
 			return fmt.Errorf("obs[%d].driver: unknown driver %q", i, entry.Driver)
 		}
