@@ -22,6 +22,7 @@ import (
 	"github.com/tvmaly/nanogo/ext/adaptive/domains/lessonfactory"
 	"github.com/tvmaly/nanogo/ext/adaptive/reports"
 	"github.com/tvmaly/nanogo/ext/agentpatterns"
+	"github.com/tvmaly/nanogo/ext/meta"
 	costobs "github.com/tvmaly/nanogo/ext/obs/cost"
 	"github.com/tvmaly/nanogo/modules/memory"
 	modulesession "github.com/tvmaly/nanogo/modules/session"
@@ -74,6 +75,12 @@ func main() {
 			return
 		case "lessonfactory":
 			if err := runLessonFactoryCmd(flag.Args()[1:], *workspaceDir); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "meta":
+			if err := runMetaCmd(flag.Args()[1:], *workspaceDir); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
 			}
@@ -266,6 +273,42 @@ func resolveLessonID(workspace, id string) (string, error) {
 	}
 	sort.Strings(names)
 	return names[len(names)-1], nil
+}
+
+func runMetaCmd(args []string, workspace string) error {
+	if len(args) < 2 || args[0] != "lesson" || args[1] != "create" {
+		return fmt.Errorf("usage: nanogo meta lesson create --kind manim_lesson|browser_game_lesson --prompt <text> --runner fake")
+	}
+	fs := flag.NewFlagSet("meta lesson create", flag.ContinueOnError)
+	kind := fs.String("kind", "", "lesson artifact kind")
+	prompt := fs.String("prompt", "", "lesson prompt")
+	runner := fs.String("runner", "fake", "artifact runner")
+	if err := fs.Parse(args[2:]); err != nil {
+		return err
+	}
+	svc := meta.NewService(workspace, meta.NewJSONLStore(workspace))
+	res, err := svc.CreateLesson(context.Background(), meta.CreateLessonRequest{Kind: *kind, Prompt: *prompt, Runner: *runner})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("lesson_id: %s\n", res.LessonID)
+	fmt.Printf("run_id: %s\n", res.RunID)
+	fmt.Printf("decision: %s\n", res.Decision)
+	fmt.Printf("eligible_for_promotion: %t\n", res.Eligible)
+	if res.VideoPath != "" {
+		fmt.Printf("video_path: %s\n", res.VideoPath)
+	}
+	if res.PreviewPath != "" {
+		fmt.Printf("preview_path: %s\n", res.PreviewPath)
+	}
+	if res.PreviewURL != "" {
+		fmt.Printf("preview_url: %s\n", res.PreviewURL)
+	}
+	if res.ValidationPath != "" {
+		fmt.Printf("validation_report: %s\n", res.ValidationPath)
+	}
+	fmt.Printf("bundle_path: %s\n", res.BundlePath)
+	return nil
 }
 
 func runAdaptiveCmd(args []string, workspace string) error {

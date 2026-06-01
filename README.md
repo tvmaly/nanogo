@@ -216,6 +216,26 @@ Run the live OpenRouter smoke suite with:
 OPENROUTER_API_KEY=sk-or-v1-... make test
 ```
 
+## Executable lesson artifacts
+
+The meta research loop can create deterministic draft lesson artifacts without calling a model or starting a preview server:
+
+```bash
+nanogo --workspace ./workspace meta lesson create \
+  --kind manim_lesson \
+  --prompt "Teach multiplying fractions to a 9-year-old" \
+  --runner fake
+
+nanogo --workspace ./workspace meta lesson create \
+  --kind browser_game_lesson \
+  --prompt "Teach states of matter with a drag-and-drop sorting game" \
+  --runner fake
+```
+
+These commands write run-scoped candidates under `lessons/generated/<lesson-id>/runs/<run-id>/`, including `lesson.bundle.yaml`, source files, logs, validation reports, static preview files, and fake video or browser-game artifacts. Lineage and graph evidence are appended under `memory/meta/`. Passing smoke gates make a candidate eligible for promotion, but the command does not promote it.
+
+For parents, this means nanogo can produce inspectable draft animations and interactive activities before anything becomes a stable lesson. For developers, the first slice is fake-backed and deterministic; real Manim, Vite, and Playwright execution remains a manual follow-up.
+
 ---
 
 ## Phase 19 voice support

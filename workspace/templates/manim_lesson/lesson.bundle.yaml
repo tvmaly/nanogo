@@ -1,0 +1,25 @@
+schema_version: meta.lesson_bundle.v1
+id: bundle-template-manim
+lesson_id: lesson-template-manim
+kind: manim_lesson
+title: Manim lesson template
+prompt: Replace with the lesson prompt.
+status: draft
+learning_objectives:
+  - Explain the concept visually.
+artifacts:
+  - id: artifact-template-video
+    kind: video
+    path: media/lesson.mp4
+    required: true
+  - id: artifact-template-validation
+    kind: validation_report
+    path: validation_report.json
+    required: true
+  - id: artifact-template-preview
+    kind: preview_page
+    path: preview/index.html
+    required: true
+promotion:
+  eligible: false
+  promoted: false

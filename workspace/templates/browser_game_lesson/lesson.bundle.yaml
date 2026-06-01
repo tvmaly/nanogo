@@ -1,0 +1,29 @@
+schema_version: meta.lesson_bundle.v1
+id: bundle-template-browser-game
+lesson_id: lesson-template-browser-game
+kind: browser_game_lesson
+title: Browser game lesson template
+prompt: Replace with the lesson prompt.
+status: draft
+learning_objectives:
+  - Practice the concept through sorting.
+artifacts:
+  - id: artifact-template-html-app
+    kind: html_app
+    path: dist/index.html
+    required: true
+  - id: artifact-template-preview-url
+    kind: preview_url
+    url: file://preview/index.html
+    required: true
+  - id: artifact-template-screenshot
+    kind: screenshot
+    path: screenshots/preview.png
+    required: true
+  - id: artifact-template-validation
+    kind: validation_report
+    path: validation_report.json
+    required: true
+promotion:
+  eligible: false
+  promoted: false

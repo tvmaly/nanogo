@@ -1,0 +1,7 @@
+{
+  "scripts": {
+    "build": "vite --host 127.0.0.1"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
