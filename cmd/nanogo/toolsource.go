@@ -11,6 +11,7 @@ import (
 	"github.com/tvmaly/nanogo/ext/agentpatterns"
 	patterntools "github.com/tvmaly/nanogo/ext/agentpatterns/tools"
 	"github.com/tvmaly/nanogo/ext/tools/progressive"
+	toolsbrowser "github.com/tvmaly/nanogo/modules/browser/toolsource"
 	"github.com/tvmaly/nanogo/modules/tools/builtin"
 )
 
@@ -36,7 +37,16 @@ func buildToolSourceFromConfig(cfg *config, bus event.Bus, coord builtin.AskUser
 			RouterEnabled:  cfg.AgentPatterns.RouterEnabled,
 			ToolRuntime:    tools.NewContractRuntime(base),
 		})
-		return coreruntime.NewMultiSource(base, patterntools.NewSource(rt)), nil
+		base = coreruntime.NewMultiSource(base, patterntools.NewSource(rt))
+	}
+	if cfg != nil && cfg.Browser.Enabled {
+		svc, err := buildBrowserService(cfg, bus, "", false)
+		if err != nil {
+			return nil, err
+		}
+		if svc != nil {
+			base = coreruntime.NewMultiSource(base, toolsbrowser.New(svc))
+		}
 	}
 	return base, nil
 }

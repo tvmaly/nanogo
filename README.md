@@ -31,10 +31,13 @@ nanogo is different:
 - **Extensible operator interfaces** — Phase 19.7 adds a shared gateway surface so the same tutor runtime can be driven from a local TUI, an OpenAI-compatible HTTP API, or an OpenClaw-style WebSocket gateway
 - **Local interactive help** — Phase 19.9 adds deterministic help topics that can be searched from the CLI, TUI, GatewayWS, and the OpenAI-compatible operations endpoint without calling an LLM
 - **Hardened extension boundaries** — Phase 21.x keeps the kernel small, makes runtime extension registration auditable by capability family, and moves file-backed session persistence into `modules/session`
+- **Optional local browser lessons** — The browser-control phase adds config-gated local browser sessions for interactive lessons, with deterministic fake tests and an `agent-browser` adapter for manual headed smoke runs
 
 For parents, Phase 19 voice support matters because it makes tutoring less like typing into a chatbot and more like working with a patient adult helper. Younger learners can answer out loud before they type confidently, parents can turn listening or speaking on and off during a session, and raw microphone audio is not persisted by default.
 
 Phase 19.7 matters for families and builders who want more than one way to operate the tutor. A local terminal operator can monitor sessions in a TUI, existing OpenAI-compatible clients can call nanogo through `/v1/chat/completions`, and future apps can subscribe to normalized gateway events without coupling to the core agent loop.
+
+Browser-control support matters when a lesson is more than a chat transcript. Nanogo can open a local lesson page, inspect accessible controls, click or fill answers, capture screenshots as local artifacts, and close the session when a trusted lesson wrapper reports completion. It is off by default so normal tutoring and tests do not require a browser.
 
 ---
 
@@ -130,6 +133,27 @@ set DEEPGRAM_API_KEY=your-deepgram-key-here
 ```
 
 To avoid setting this every time, add it to your shell profile (`.zshrc` or `.bashrc` on Mac/Linux, or System Environment Variables on Windows).
+
+Optional browser lesson setup:
+
+```
+scripts/setup_agent_browser.sh
+./nanogo browser doctor --driver agent-browser
+./nanogo browser open --driver agent-browser --headed https://example.com
+```
+
+Browser support is disabled by default. To expose browser tools to agents or gateway operations, add:
+
+```json
+{
+  "browser": {
+    "enabled": true,
+    "driver": "agent-browser",
+    "allow_file_roots": ["workspace/lessons"],
+    "max_sessions": 2
+  }
+}
+```
 
 ### Step 4 — Try it
 

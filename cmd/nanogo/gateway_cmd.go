@@ -58,6 +58,11 @@ func buildGatewayRuntime(configPath, skillsDir, workspaceDir, source string) (*g
 		cleanup()
 		return nil, err
 	}
+	browserSvc, err := buildBrowserService(cfg, bus, workspaceDir, false)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
 	svc := gateway.New(gateway.Config{
 		Provider:  provider,
 		Store:     store,
@@ -80,6 +85,7 @@ func buildGatewayRuntime(configPath, skillsDir, workspaceDir, source string) (*g
 		Voice:         buildTUIGatewayVoiceController(cfg),
 		RealtimeVoice: buildXAIRealtimeController(workspaceDir),
 		Help:          helpSvc,
+		Browser:       browserSvc,
 	})
 	return &gatewayRuntime{cfg: cfg, provider: provider, store: store, bus: bus, service: svc, cleanup: cleanup}, nil
 }

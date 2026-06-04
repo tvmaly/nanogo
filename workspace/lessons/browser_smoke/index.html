@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Nanogo Browser Smoke Lesson</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 48rem; }
+    button, input, select { font: inherit; margin: .5rem 0; display: block; }
+    video { width: 100%; max-width: 32rem; background: #222; }
+  </style>
+</head>
+<body>
+  <h1>Browser Smoke Lesson</h1>
+  <p>Answer the short question, then mark the lesson complete.</p>
+  <label>Answer <input id="answer" aria-label="Answer"></label>
+  <label>Grade
+    <select id="grade" aria-label="Grade">
+      <option>Grade 4</option>
+      <option>Grade 5</option>
+    </select>
+  </label>
+  <video id="lesson-video" controls></video>
+  <button id="next">Next</button>
+  <button id="complete">Complete lesson</button>
+  <script>
+    const session = new URLSearchParams(location.search).get("session_id") || "";
+    function post(kind, payload) {
+      fetch("http://127.0.0.1:0/browser/lesson-event", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({session_id: session, kind, payload})
+      }).catch(() => {});
+    }
+    document.getElementById("next").addEventListener("click", () => post("progress", {step: "next"}));
+    document.getElementById("complete").addEventListener("click", () => post("completion", {score: 1}));
+  </script>
+</body>
+</html>

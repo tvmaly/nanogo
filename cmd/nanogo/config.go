@@ -46,7 +46,8 @@ type config struct {
 		RouterEnabled  bool   `json:"router_enabled"`
 		TraceDir       string `json:"trace_dir"`
 	} `json:"agent_patterns"`
-	Voice voiceConfig `json:"voice"`
+	Voice   voiceConfig   `json:"voice"`
+	Browser browserConfig `json:"browser"`
 }
 
 type driverConfig struct {
@@ -98,6 +99,24 @@ type voiceWebSearchConfig struct {
 	SearchContextSize string   `json:"search_context_size,omitempty"`
 	AllowedDomains    []string `json:"allowed_domains,omitempty"`
 	ExcludedDomains   []string `json:"excluded_domains,omitempty"`
+}
+
+type browserConfig struct {
+	Enabled                bool     `json:"enabled"`
+	Driver                 string   `json:"driver,omitempty"`
+	MaxSessions            int      `json:"max_sessions,omitempty"`
+	SessionTTLSeconds      int      `json:"session_ttl_seconds,omitempty"`
+	AllowedDomains         []string `json:"allowed_domains,omitempty"`
+	AllowFileRoots         []string `json:"allow_file_roots,omitempty"`
+	ArtifactRoot           string   `json:"artifact_root,omitempty"`
+	AllowEval              bool     `json:"allow_eval,omitempty"`
+	AllowUploads           bool     `json:"allow_uploads,omitempty"`
+	AllowDownloads         bool     `json:"allow_downloads,omitempty"`
+	AllowNonLoopbackCDP    bool     `json:"allow_non_loopback_cdp,omitempty"`
+	IncludeEvalConsole     bool     `json:"include_eval_console,omitempty"`
+	SnapshotMaxDepth       int      `json:"snapshot_max_depth,omitempty"`
+	SnapshotMaxOutputBytes int      `json:"snapshot_max_output_bytes,omitempty"`
+	RegistryPath           string   `json:"registry_path,omitempty"`
 }
 
 // defaultConfigPath is the path tried when no --config flag is given.
@@ -173,6 +192,27 @@ func (c *config) validate() error {
 	}
 	if err := c.validateVoice(); err != nil {
 		return err
+	}
+	if err := c.validateBrowser(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *config) validateBrowser() error {
+	if !c.Browser.Enabled && c.Browser.Driver == "" {
+		return nil
+	}
+	switch c.Browser.Driver {
+	case "", "fake", "agent-browser":
+	default:
+		return fmt.Errorf("browser.driver: unknown driver %q", c.Browser.Driver)
+	}
+	if c.Browser.MaxSessions < 0 {
+		return fmt.Errorf("browser.max_sessions: must be >= 0")
+	}
+	if c.Browser.SessionTTLSeconds < 0 {
+		return fmt.Errorf("browser.session_ttl_seconds: must be >= 0")
 	}
 	return nil
 }

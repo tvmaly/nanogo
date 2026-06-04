@@ -91,6 +91,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "browser":
+			if err := runBrowserCmd(flag.Args()[1:], *configPath, *workspaceDir); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "tui":
 			if err := runTUICmd(flag.Args()[1:], *configPath, *skillsDir, *workspaceDir); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
