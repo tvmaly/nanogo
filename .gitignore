@@ -1,7 +1,20 @@
+AGENTS.md
 CLAUDE.md
 TODO.md
 PLAN.md
 ACCEPTANCE_TESTS_PLAN.md
+ARCHITECTURE.md
+ARCHITECTURE_DIAGRAMS.md
+EXTENSION_BOUNDARY_ACCEPTANCE_TESTS.md
+EXTENSION_BOUNDARY_PLAN.md
+improvements.md
+nanogo-agent-readable-observability-acceptance-tests-v2.md
+nanogo-agent-readable-observability-plan-v2.md
+nanogo-meta-research-loop-v2-acceptance-tests.md
+nanogo-meta-research-loop-v2-plan.md
+test_nano_terminal.sh
+test_todo.md
+verify_architecture_docs.py
 .DS_Store
 .claude/
 
