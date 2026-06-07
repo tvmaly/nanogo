@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -115,6 +116,9 @@ func (a *Adapter) Navigate(ctx context.Context, req browser.NavigateRequest) (br
 	if req.WaitUntil != "" {
 		args = append(args, "--wait-until", req.WaitUntil)
 	}
+	if u, err := url.Parse(req.URL); err == nil && u.Scheme == "file" {
+		args = append(args, "--allow-file-access")
+	}
 	var raw struct {
 		TabID   string `json:"tab_id"`
 		URL     string `json:"url"`
@@ -202,11 +206,31 @@ func (a *Adapter) Text(ctx context.Context, req browser.TextRequest) (browser.Te
 }
 
 func (a *Adapter) Screenshot(ctx context.Context, req browser.ScreenshotRequest) (browser.Artifact, error) {
-	var raw browser.Artifact
-	if err := a.runDataJSON(ctx, []string{"screenshot", "--json", "--session", string(req.SessionID)}, &raw); err != nil {
+	args := []string{"screenshot"}
+	if req.Annotated {
+		args = append(args, "--annotate")
+	}
+	if req.FullPage {
+		args = append(args, "--full")
+	}
+	if req.Path != "" {
+		args = append(args, req.Path)
+	}
+	args = append(args, "--json", "--session", string(req.SessionID))
+	var raw struct {
+		browser.Artifact
+		Path     string `json:"path"`
+		File     string `json:"file"`
+		Filename string `json:"filename"`
+	}
+	if err := a.runDataJSON(ctx, args, &raw); err != nil {
 		return browser.Artifact{}, err
 	}
-	return raw, nil
+	artifact := raw.Artifact
+	if artifact.Path == "" {
+		artifact.Path = firstNonEmpty(raw.Path, raw.File, raw.Filename, req.Path)
+	}
+	return artifact, nil
 }
 
 func (a *Adapter) PDF(ctx context.Context, req browser.PDFRequest) (browser.Artifact, error) {
@@ -352,12 +376,15 @@ func mapError(err error, stderr []byte) error {
 	}
 }
 
-var versionRE = regexp.MustCompile(`(\d+\.\d+\.\d+)`)
+var versionRE = regexp.MustCompile(`(\d+\.\d+\.\d+)([-+][0-9A-Za-z.-]+)?`)
 
 func parseVersion(s string) (string, error) {
 	m := versionRE.FindStringSubmatch(s)
-	if len(m) != 2 {
+	if len(m) != 3 {
 		return "", fmt.Errorf("could not parse agent-browser version")
+	}
+	if strings.HasPrefix(m[2], "-") {
+		return m[1] + m[2], nil
 	}
 	return m[1], nil
 }
@@ -373,14 +400,34 @@ func compareVersion(a, b string) int {
 			return 1
 		}
 	}
+	aPre := strings.Contains(a, "-")
+	bPre := strings.Contains(b, "-")
+	if aPre && !bPre {
+		return -1
+	}
+	if !aPre && bPre {
+		return 1
+	}
 	return 0
 }
 
 func splitVersion(s string) [3]int {
 	var out [3]int
+	if idx := strings.IndexAny(s, "-+"); idx >= 0 {
+		s = s[:idx]
+	}
 	parts := strings.Split(s, ".")
 	for i := 0; i < 3 && i < len(parts); i++ {
 		out[i], _ = strconv.Atoi(parts[i])
 	}
 	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

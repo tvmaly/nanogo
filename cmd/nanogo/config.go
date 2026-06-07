@@ -102,21 +102,22 @@ type voiceWebSearchConfig struct {
 }
 
 type browserConfig struct {
-	Enabled                bool     `json:"enabled"`
-	Driver                 string   `json:"driver,omitempty"`
-	MaxSessions            int      `json:"max_sessions,omitempty"`
-	SessionTTLSeconds      int      `json:"session_ttl_seconds,omitempty"`
-	AllowedDomains         []string `json:"allowed_domains,omitempty"`
-	AllowFileRoots         []string `json:"allow_file_roots,omitempty"`
-	ArtifactRoot           string   `json:"artifact_root,omitempty"`
-	AllowEval              bool     `json:"allow_eval,omitempty"`
-	AllowUploads           bool     `json:"allow_uploads,omitempty"`
-	AllowDownloads         bool     `json:"allow_downloads,omitempty"`
-	AllowNonLoopbackCDP    bool     `json:"allow_non_loopback_cdp,omitempty"`
-	IncludeEvalConsole     bool     `json:"include_eval_console,omitempty"`
-	SnapshotMaxDepth       int      `json:"snapshot_max_depth,omitempty"`
-	SnapshotMaxOutputBytes int      `json:"snapshot_max_output_bytes,omitempty"`
-	RegistryPath           string   `json:"registry_path,omitempty"`
+	Enabled                            bool     `json:"enabled"`
+	Driver                             string   `json:"driver,omitempty"`
+	MaxSessions                        int      `json:"max_sessions,omitempty"`
+	SessionTTLSeconds                  int      `json:"session_ttl_seconds,omitempty"`
+	AllowedDomains                     []string `json:"allowed_domains,omitempty"`
+	AllowFileRoots                     []string `json:"allow_file_roots,omitempty"`
+	ArtifactRoot                       string   `json:"artifact_root,omitempty"`
+	AllowEval                          bool     `json:"allow_eval,omitempty"`
+	AllowUploads                       bool     `json:"allow_uploads,omitempty"`
+	AllowDownloads                     bool     `json:"allow_downloads,omitempty"`
+	AllowNonLoopbackCDP                bool     `json:"allow_non_loopback_cdp,omitempty"`
+	IncludeEvalConsole                 bool     `json:"include_eval_console,omitempty"`
+	LessonWrapperStrictExternalScripts bool     `json:"lesson_wrapper_strict_external_scripts,omitempty"`
+	SnapshotMaxDepth                   int      `json:"snapshot_max_depth,omitempty"`
+	SnapshotMaxOutputBytes             int      `json:"snapshot_max_output_bytes,omitempty"`
+	RegistryPath                       string   `json:"registry_path,omitempty"`
 }
 
 // defaultConfigPath is the path tried when no --config flag is given.

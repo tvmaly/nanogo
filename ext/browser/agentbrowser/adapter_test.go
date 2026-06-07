@@ -37,6 +37,30 @@ func TestHealthRequiresMinimumVersion(t *testing.T) {
 	}
 }
 
+func TestHealthRejectsPrereleaseAndAcceptsBuildMetadata(t *testing.T) {
+	r := &fakeRunner{out: []byte("agent-browser 0.27.0-rc1")}
+	_, err := New(r).Health(context.Background())
+	if code(err) != browser.CodeUnsupportedVersion {
+		t.Fatalf("prerelease code = %v err=%v", code(err), err)
+	}
+	r = &fakeRunner{out: []byte("agent-browser 0.27.1+build.123")}
+	health, err := New(r).Health(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.Version != "0.27.1" {
+		t.Fatalf("version = %q", health.Version)
+	}
+}
+
+func TestHealthMalformedVersionIsTypedUnavailable(t *testing.T) {
+	r := &fakeRunner{out: []byte("agent-browser dev")}
+	_, err := New(r).Health(context.Background())
+	if code(err) != browser.CodeAdapterUnavailable {
+		t.Fatalf("code = %v err=%v", code(err), err)
+	}
+}
+
 func TestStartUsesArgvAndDomainFileFlags(t *testing.T) {
 	r := &fakeRunner{out: []byte(`{"success":true,"data":{"launched":true},"error":null}`)}
 	sess, err := New(r).Start(context.Background(), browser.StartRequest{
@@ -49,6 +73,17 @@ func TestStartUsesArgvAndDomainFileFlags(t *testing.T) {
 		t.Fatalf("unexpected session: %+v", sess)
 	}
 	want := []string{"open", "--json", "--session", "lesson", "--session-name", "lesson", "--headed", "--allowed-domains", "example.test", "--allow-file-access"}
+	if !reflect.DeepEqual(r.args[0], want) {
+		t.Fatalf("args = %#v want %#v", r.args[0], want)
+	}
+}
+
+func TestNavigateAllowsFileAccessForFileURLs(t *testing.T) {
+	r := &fakeRunner{out: []byte(`{"success":true,"data":{"url":"file:///tmp/index.html","status":"loaded"},"error":null}`)}
+	if _, err := New(r).Navigate(context.Background(), browser.NavigateRequest{SessionID: "s1", URL: "file:///tmp/index.html", WaitUntil: "load"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"open", "file:///tmp/index.html", "--json", "--session", "s1", "--wait-until", "load", "--allow-file-access"}
 	if !reflect.DeepEqual(r.args[0], want) {
 		t.Fatalf("args = %#v want %#v", r.args[0], want)
 	}
@@ -76,6 +111,21 @@ func TestSnapshotParsesCurrentAgentBrowserRefsShape(t *testing.T) {
 	}
 	if snap.Nodes[0].Ref != "ref://v1/e1" || snap.Nodes[0].AdapterRef != "@e1" || snap.Nodes[0].Label != "Example Domain" {
 		t.Fatalf("bad first node: %+v", snap.Nodes[0])
+	}
+}
+
+func TestScreenshotPassesRequestedArtifactPath(t *testing.T) {
+	r := &fakeRunner{out: []byte(`{"success":true,"data":{"path":"/tmp/shot.png"},"error":null}`)}
+	artifact, err := New(r).Screenshot(context.Background(), browser.ScreenshotRequest{SessionID: "s1", Path: "/tmp/shot.png", FullPage: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Path != "/tmp/shot.png" {
+		t.Fatalf("artifact path = %q", artifact.Path)
+	}
+	want := []string{"screenshot", "--full", "/tmp/shot.png", "--json", "--session", "s1"}
+	if !reflect.DeepEqual(r.args[0], want) {
+		t.Fatalf("args = %#v want %#v", r.args[0], want)
 	}
 }
 

@@ -8,6 +8,7 @@ set -euo pipefail
 #   NANOGO_AGENT_BROWSER_WITH_DEPS=1 allows Linux system dependency install.
 
 DRY_RUN="${NANOGO_AGENT_BROWSER_DRY_RUN:-0}"
+MIN_AGENT_BROWSER_VERSION="0.27.0"
 
 run() {
   if [ "$DRY_RUN" = "1" ]; then
@@ -21,6 +22,43 @@ run() {
 
 have() {
   command -v "$1" >/dev/null 2>&1
+}
+
+agent_browser_version() {
+  agent-browser --version 2>/dev/null | sed -E 's/.*([0-9]+\.[0-9]+\.[0-9]+).*/\1/'
+}
+
+version_at_least() {
+  local have_version="$1"
+  local want_version="$2"
+  local IFS=.
+  local have_parts want_parts
+  read -r -a have_parts <<<"$have_version"
+  read -r -a want_parts <<<"$want_version"
+  local i
+  for i in 0 1 2; do
+    local have_num="${have_parts[$i]:-0}"
+    local want_num="${want_parts[$i]:-0}"
+    if (( have_num > want_num )); then
+      return 0
+    fi
+    if (( have_num < want_num )); then
+      return 1
+    fi
+  done
+  return 0
+}
+
+cli_ready() {
+  if ! have agent-browser; then
+    return 1
+  fi
+  local version
+  version="$(agent_browser_version)"
+  if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    return 1
+  fi
+  version_at_least "$version" "$MIN_AGENT_BROWSER_VERSION"
 }
 
 install_with_brew() {
@@ -94,7 +132,11 @@ doctor() {
 }
 
 main() {
-  install_cli
+  if cli_ready; then
+    echo "agent-browser already at required version ${MIN_AGENT_BROWSER_VERSION}; skipping package-manager upgrade."
+  else
+    install_cli
+  fi
   install_browser_binary
   doctor
   echo "agent-browser setup complete."

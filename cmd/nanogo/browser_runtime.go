@@ -17,20 +17,21 @@ func buildBrowserService(cfg *config, bus event.Bus, workspaceDir string, force 
 		return nil, nil
 	}
 	policy := browser.Policy{
-		Enabled:               true,
-		Driver:                cfg.Browser.Driver,
-		MaxSessions:           cfg.Browser.MaxSessions,
-		SessionTTLSeconds:     cfg.Browser.SessionTTLSeconds,
-		AllowedDomains:        cfg.Browser.AllowedDomains,
-		AllowFileRoots:        expandPaths(cfg.Browser.AllowFileRoots),
-		ArtifactRoot:          expandPath(cfg.Browser.ArtifactRoot),
-		AllowEval:             cfg.Browser.AllowEval,
-		AllowUploads:          cfg.Browser.AllowUploads,
-		AllowDownloads:        cfg.Browser.AllowDownloads,
-		AllowNonLoopbackCDP:   cfg.Browser.AllowNonLoopbackCDP,
-		IncludeEvalConsole:    cfg.Browser.IncludeEvalConsole,
-		SnapshotMaxDepth:      cfg.Browser.SnapshotMaxDepth,
-		SnapshotMaxOutputByte: cfg.Browser.SnapshotMaxOutputBytes,
+		Enabled:                            true,
+		Driver:                             cfg.Browser.Driver,
+		MaxSessions:                        cfg.Browser.MaxSessions,
+		SessionTTLSeconds:                  cfg.Browser.SessionTTLSeconds,
+		AllowedDomains:                     cfg.Browser.AllowedDomains,
+		AllowFileRoots:                     expandPaths(cfg.Browser.AllowFileRoots),
+		ArtifactRoot:                       expandPath(cfg.Browser.ArtifactRoot),
+		AllowEval:                          cfg.Browser.AllowEval,
+		AllowUploads:                       cfg.Browser.AllowUploads,
+		AllowDownloads:                     cfg.Browser.AllowDownloads,
+		AllowNonLoopbackCDP:                cfg.Browser.AllowNonLoopbackCDP,
+		IncludeEvalConsole:                 cfg.Browser.IncludeEvalConsole,
+		LessonWrapperStrictExternalScripts: cfg.Browser.LessonWrapperStrictExternalScripts,
+		SnapshotMaxDepth:                   cfg.Browser.SnapshotMaxDepth,
+		SnapshotMaxOutputByte:              cfg.Browser.SnapshotMaxOutputBytes,
 	}.WithDefaults()
 	if len(policy.AllowFileRoots) == 0 && workspaceDir != "" {
 		policy.AllowFileRoots = []string{filepath.Join(workspaceDir, "lessons")}

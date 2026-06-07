@@ -39,6 +39,8 @@ Phase 19.7 matters for families and builders who want more than one way to opera
 
 Browser-control support matters when a lesson is more than a chat transcript. Nanogo can open a local lesson page, inspect accessible controls, click or fill answers, capture screenshots as local artifacts, and close the session when a trusted lesson wrapper reports completion. It is off by default so normal tutoring and tests do not require a browser.
 
+The hardened browser path adds an extra safety layer for families using local interactive lessons. Lesson completion now requires a per-session nonce from the trusted wrapper, local file lessons are checked against symlink-safe roots, external scripts in local wrapper HTML are rejected by default, and browser session records avoid sensitive data such as profiles, cookies, storage, auth headers, and screenshots.
+
 ---
 
 ## What it looks like in practice
@@ -140,6 +142,9 @@ Optional browser lesson setup:
 scripts/setup_agent_browser.sh
 ./nanogo browser doctor --driver agent-browser
 ./nanogo browser open --driver agent-browser --headed https://example.com
+./nanogo browser smoke-duckduckgo --driver agent-browser --headed
+./nanogo browser smoke-youtube --driver agent-browser --headed --seconds 75
+./nanogo --workspace ./workspace browser smoke-youtube-iframe --driver agent-browser --headed
 ```
 
 Browser support is disabled by default. To expose browser tools to agents or gateway operations, add:
@@ -150,10 +155,15 @@ Browser support is disabled by default. To expose browser tools to agents or gat
     "enabled": true,
     "driver": "agent-browser",
     "allow_file_roots": ["workspace/lessons"],
+    "artifact_root": ".nanogo/browser-artifacts",
     "max_sessions": 2
   }
 }
 ```
+
+Trusted local wrapper lessons under `allow_file_roots` can report `progress`, `quiz_answer`, `error`, and `completion` events, but completion closes the session only when the wrapper includes the session nonce returned by `browser_session_start`. `browser_eval` remains policy-gated and reports that JavaScript-initiated network requests are not isolated by Nanogo domain policy.
+
+Manual headed live-web smoke commands write redacted JSON artifacts under `.nanogo/browser-smokes` by default. Each artifact includes the final URL, title, screenshot path, console/network summaries, and cleanup status. The YouTube iframe smoke defaults to the checked-in local fixture at `workspace/lessons/yoyo_youtube_iframe/index.html`; use `--url` to point it at another trusted wrapper.
 
 ### Step 4 — Try it
 

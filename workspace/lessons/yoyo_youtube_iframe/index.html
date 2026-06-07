@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beginner Yo-Yo Tricks Video Lesson</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      color: #18212f;
+      background: #f7f5ef;
+    }
+
+    main {
+      width: min(58rem, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 2rem 0;
+    }
+
+    h1 {
+      margin: 0 0 .5rem;
+      font-size: clamp(1.7rem, 2.5vw, 2.4rem);
+      line-height: 1.1;
+    }
+
+    p {
+      max-width: 42rem;
+      line-height: 1.5;
+    }
+
+    .player {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      margin: 1.5rem 0;
+      background: #111827;
+      border: 1px solid #c9c3b5;
+    }
+
+    iframe {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+
+    button {
+      font: inherit;
+      min-height: 2.75rem;
+      padding: .65rem 1rem;
+      color: #fff;
+      background: #265c4b;
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    button:focus-visible {
+      outline: 3px solid #d19922;
+      outline-offset: 2px;
+    }
+
+    output {
+      display: block;
+      margin-top: .75rem;
+      min-height: 1.5rem;
+      color: #334155;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Beginner Yo-Yo Tricks</h1>
+    <p>This local lesson fixture embeds a YouTube player so headed browser smoke tests can verify iframe rendering, screenshots, and recoverable playback behavior.</p>
+    <section class="player" aria-label="Beginner yo-yo tricks YouTube player">
+      <iframe
+        id="lesson-video"
+        title="Beginner Yo-Yo Tricks YouTube video"
+        src="https://www.youtube-nocookie.com/embed/D0dRgu2BxF8?enablejsapi=1&playsinline=1&rel=0&modestbranding=1"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen></iframe>
+    </section>
+    <button id="done" type="button">Done watching</button>
+    <output id="status" role="status" aria-live="polite"></output>
+  </main>
+  <script>
+    const status = document.getElementById("status");
+    const session = new URLSearchParams(location.search).get("session_id") || "";
+
+    function recordCompletion() {
+      status.textContent = "Completion marked locally.";
+      if (!session) {
+        return;
+      }
+
+      fetch("http://127.0.0.1:0/browser/lesson-event", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          session_id: session,
+          kind: "completion",
+          payload: {fixture: "yoyo_youtube_iframe"}
+        })
+      }).catch(() => {});
+    }
+
+    document.getElementById("done").addEventListener("click", recordCompletion);
+  </script>
+</body>
+</html>

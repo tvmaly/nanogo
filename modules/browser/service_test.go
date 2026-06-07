@@ -2,7 +2,12 @@ package browser_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -142,13 +147,170 @@ func TestServiceEvalAndMediaPolicy(t *testing.T) {
 
 func TestLessonCompletionEventClosesSession(t *testing.T) {
 	ctx := context.Background()
-	svc := newTestService(t, browser.Policy{})
+	bus := event.NewBus()
+	sub := bus.Subscribe(ctx, event.Kind(browser.EventLessonCompleted))
+	svc, err := browser.NewService(browser.ServiceConfig{Controller: fake.New(), Policy: browser.Policy{}, Bus: bus})
+	if err != nil {
+		t.Fatal(err)
+	}
 	sess, _ := svc.Start(ctx, browser.StartRequest{SessionName: "lesson"})
-	if err := svc.RecordLessonEvent(ctx, browser.LessonEvent{SessionID: sess.ID, Kind: "completion"}); err != nil {
+	if sess.LessonEventNonce == "" {
+		t.Fatalf("start should return a lesson event nonce")
+	}
+	if err := svc.RecordLessonEvent(ctx, browser.LessonEvent{SessionID: sess.ID, Kind: "completion", Nonce: "wrong"}); code(err) != browser.CodeNotAuthorized {
+		t.Fatalf("wrong nonce code = %v err=%v", code(err), err)
+	}
+	if svc.HasSession() == false {
+		t.Fatalf("wrong nonce should not close session")
+	}
+	if err := svc.RecordLessonEvent(ctx, browser.LessonEvent{SessionID: sess.ID, Kind: "completion", Nonce: sess.LessonEventNonce}); err != nil {
 		t.Fatalf("record event: %v", err)
+	}
+	got := <-sub
+	if string(got.Kind) != browser.EventLessonCompleted {
+		t.Fatalf("event kind = %s", got.Kind)
 	}
 	if svc.HasSession() {
 		t.Fatalf("completion should close session")
+	}
+}
+
+func TestServiceRejectsStaleSessionWithStartGuidance(t *testing.T) {
+	svc := newTestService(t, browser.Policy{})
+	_, err := svc.Navigate(context.Background(), browser.NavigateRequest{SessionID: "closed", URL: "https://example.test"})
+	if code(err) != browser.CodeNotFound || !strings.Contains(err.Error(), "browser_session_start") {
+		t.Fatalf("stale session err = %v code=%v", err, code(err))
+	}
+}
+
+func TestServiceConcurrentStartsReserveMaxSessions(t *testing.T) {
+	ctx := context.Background()
+	ctrl := fake.New()
+	ctrl.StartDelay = 20 * time.Millisecond
+	svc, err := browser.NewService(browser.ServiceConfig{Controller: ctrl, Policy: browser.Policy{MaxSessions: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, name := range []string{"one", "two"} {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			_, err := svc.Start(ctx, browser.StartRequest{SessionName: name})
+			errs <- err
+		}(name)
+	}
+	wg.Wait()
+	close(errs)
+	successes := 0
+	policyDenied := 0
+	for err := range errs {
+		if err == nil {
+			successes++
+			continue
+		}
+		if code(err) == browser.CodePolicyDenied {
+			policyDenied++
+		}
+	}
+	if successes != 1 || policyDenied != 1 {
+		t.Fatalf("successes=%d policyDenied=%d", successes, policyDenied)
+	}
+}
+
+func TestServiceRegistryWritesSafeVersionedShape(t *testing.T) {
+	ctx := context.Background()
+	registry := filepath.Join(t.TempDir(), ".nanogo", "browser-sessions.json")
+	svc, err := browser.NewService(browser.ServiceConfig{Controller: fake.New(), Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(ctx, browser.StartRequest{SessionName: "safe", Headed: true}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "profile") || strings.Contains(string(data), "screenshot") || strings.Contains(string(data), "cookie") {
+		t.Fatalf("registry contains sensitive field: %s", data)
+	}
+	var doc struct {
+		Version  int `json:"version"`
+		Sessions []struct {
+			SessionID  string `json:"session_id"`
+			Driver     string `json:"driver"`
+			TTLSeconds int    `json:"ttl_seconds"`
+			Headed     bool   `json:"headed"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Version != 1 || len(doc.Sessions) != 1 || doc.Sessions[0].SessionID == "" || doc.Sessions[0].TTLSeconds <= 0 || !doc.Sessions[0].Headed {
+		t.Fatalf("bad registry shape: %+v", doc)
+	}
+}
+
+func TestServiceRejectsSymlinkFileRootEscape(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.html"), []byte("<html></html>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	svc := newTestService(t, browser.Policy{AllowFileRoots: []string{root}})
+	sess, _ := svc.Start(ctx, browser.StartRequest{SessionName: "files"})
+	escaped := "file://" + filepath.ToSlash(filepath.Join(link, "secret.html"))
+	if _, err := svc.Navigate(ctx, browser.NavigateRequest{SessionID: sess.ID, URL: escaped}); code(err) != browser.CodePolicyDenied {
+		t.Fatalf("symlink escape code = %v err=%v", code(err), err)
+	}
+}
+
+func TestServiceRejectsExternalScriptsInStrictLocalWrapper(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	wrapper := filepath.Join(root, "index.html")
+	if err := os.WriteFile(wrapper, []byte(`<html><script src="https://cdn.example.test/app.js"></script></html>`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	svc := newTestService(t, browser.Policy{AllowFileRoots: []string{root}})
+	sess, _ := svc.Start(ctx, browser.StartRequest{SessionName: "strict"})
+	if _, err := svc.Navigate(ctx, browser.NavigateRequest{SessionID: sess.ID, URL: "file://" + filepath.ToSlash(wrapper)}); code(err) != browser.CodePolicyDenied {
+		t.Fatalf("external script code = %v err=%v", code(err), err)
+	}
+}
+
+func TestServiceCanonicalizesArtifactPaths(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	ctrl := fake.New()
+	svc, err := browser.NewService(browser.ServiceConfig{Controller: ctrl, Policy: browser.Policy{ArtifactRoot: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, _ := svc.Start(ctx, browser.StartRequest{SessionName: "shot"})
+	artifact, err := svc.Screenshot(ctx, browser.ScreenshotRequest{SessionID: sess.ID, Path: "nested/shot.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(artifact.Path) {
+		t.Fatalf("artifact path is not absolute: %q", artifact.Path)
+	}
+	rel, err := filepath.Rel(root, artifact.Path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("artifact path outside root: %q rel=%q err=%v", artifact.Path, rel, err)
+	}
+	if ctrl.LastScreenshotPath != artifact.Path {
+		t.Fatalf("controller saw %q want %q", ctrl.LastScreenshotPath, artifact.Path)
+	}
+	if _, err := svc.Screenshot(ctx, browser.ScreenshotRequest{SessionID: sess.ID, Path: "../escape.png"}); code(err) != browser.CodePolicyDenied {
+		t.Fatalf("escape code = %v err=%v", code(err), err)
 	}
 }
 

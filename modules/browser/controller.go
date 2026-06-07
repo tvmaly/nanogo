@@ -47,14 +47,15 @@ type ConnectRequest struct {
 }
 
 type Session struct {
-	ID           SessionID         `json:"session_id"`
-	Name         string            `json:"name,omitempty"`
-	ActiveTabID  TabID             `json:"tab_id,omitempty"`
-	Headed       bool              `json:"headed"`
-	Capabilities []string          `json:"capabilities,omitempty"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
-	CreatedAt    time.Time         `json:"created_at,omitempty"`
-	LastUsedAt   time.Time         `json:"last_used_at,omitempty"`
+	ID               SessionID         `json:"session_id"`
+	Name             string            `json:"name,omitempty"`
+	ActiveTabID      TabID             `json:"tab_id,omitempty"`
+	Headed           bool              `json:"headed"`
+	Capabilities     []string          `json:"capabilities,omitempty"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
+	LessonEventNonce string            `json:"lesson_event_nonce,omitempty"`
+	CreatedAt        time.Time         `json:"created_at,omitempty"`
+	LastUsedAt       time.Time         `json:"last_used_at,omitempty"`
 }
 
 type CloseRequest struct {
@@ -169,11 +170,13 @@ type ScreenshotRequest struct {
 	TabID     TabID     `json:"tab_id,omitempty"`
 	FullPage  bool      `json:"full_page,omitempty"`
 	Annotated bool      `json:"annotated,omitempty"`
+	Path      string    `json:"path,omitempty"`
 }
 
 type PDFRequest struct {
 	SessionID SessionID `json:"session_id"`
 	TabID     TabID     `json:"tab_id,omitempty"`
+	Path      string    `json:"path,omitempty"`
 }
 
 type Artifact struct {
@@ -192,8 +195,10 @@ type EvalRequest struct {
 }
 
 type EvalResult struct {
-	JSON  any    `json:"json,omitempty"`
-	Error string `json:"error,omitempty"`
+	JSON                     any    `json:"json,omitempty"`
+	Error                    string `json:"error,omitempty"`
+	NetworkIsolation         bool   `json:"network_isolation"`
+	NetworkIsolationAdvisory string `json:"network_isolation_advisory,omitempty"`
 }
 
 type WaitRequest struct {
@@ -245,5 +250,6 @@ type MediaSeekResult struct {
 type LessonEvent struct {
 	SessionID SessionID      `json:"session_id,omitempty"`
 	Kind      string         `json:"kind"`
+	Nonce     string         `json:"nonce,omitempty"`
 	Payload   map[string]any `json:"payload,omitempty"`
 }

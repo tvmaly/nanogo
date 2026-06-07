@@ -10,6 +10,7 @@ type ErrorCode string
 const (
 	CodeNotFound            ErrorCode = "not_found"
 	CodeNotAllowed          ErrorCode = "not_allowed"
+	CodeNotAuthorized       ErrorCode = "not_authorized"
 	CodeTimeout             ErrorCode = "timeout"
 	CodeAdapterUnavailable  ErrorCode = "adapter_unavailable"
 	CodeBrowserCrashed      ErrorCode = "browser_crashed"

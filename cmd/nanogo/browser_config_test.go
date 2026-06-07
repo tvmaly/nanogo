@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tvmaly/nanogo/core/event"
@@ -83,6 +84,46 @@ func TestBrowserCommandDoctorWithFakeDriver(t *testing.T) {
 	}
 	if err := runBrowserCmd([]string{"doctor", "--driver", "fake"}, path, t.TempDir()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBrowserSmokeCommandWritesArtifactAndClosesFakeSession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw := `{"llm":{"driver":"openai","config":{}}}`
+	if err := os.WriteFile(path, []byte(raw), 0644); err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	artifactDir := filepath.Join(workspace, ".nanogo", "browser-smokes")
+	if err := runBrowserCmd([]string{
+		"smoke-duckduckgo", "--driver", "fake", "--yes", "--artifact-dir", artifactDir,
+	}, path, workspace); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(artifactDir, "smoke-duckduckgo.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var artifact struct {
+		Smoke          string `json:"smoke"`
+		ScreenshotPath string `json:"screenshot_path"`
+		CleanupStatus  string `json:"cleanup_status"`
+	}
+	if err := json.Unmarshal(data, &artifact); err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Smoke != "smoke-duckduckgo" || artifact.ScreenshotPath == "" || artifact.CleanupStatus != "closed" {
+		t.Fatalf("bad artifact: %+v", artifact)
+	}
+}
+
+func TestSmokeYoutubeIFrameDefaultUsesLocalFixture(t *testing.T) {
+	u, err := smokeURL("smoke-youtube-iframe", "", "/tmp/workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(u, "file:///") || !strings.Contains(u, "workspace/lessons/yoyo_youtube_iframe/index.html") {
+		t.Fatalf("unexpected iframe URL: %s", u)
 	}
 }
 

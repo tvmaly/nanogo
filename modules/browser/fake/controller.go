@@ -12,11 +12,13 @@ import (
 )
 
 type Controller struct {
-	mu       sync.Mutex
-	nextSess int
-	nextTab  int
-	sessions map[browser.SessionID]*state
-	Closed   []browser.SessionID
+	mu                 sync.Mutex
+	nextSess           int
+	nextTab            int
+	sessions           map[browser.SessionID]*state
+	Closed             []browser.SessionID
+	StartDelay         time.Duration
+	LastScreenshotPath string
 }
 
 type state struct {
@@ -38,7 +40,14 @@ func (c *Controller) Health(context.Context) (browser.Health, error) {
 	return browser.Health{OK: true, Driver: "fake", Version: "0.0.0", Capabilities: []string{"snapshot", "click", "media_seek"}}, nil
 }
 
-func (c *Controller) Start(_ context.Context, req browser.StartRequest) (browser.Session, error) {
+func (c *Controller) Start(ctx context.Context, req browser.StartRequest) (browser.Session, error) {
+	if c.StartDelay > 0 {
+		select {
+		case <-time.After(c.StartDelay):
+		case <-ctx.Done():
+			return browser.Session{}, ctx.Err()
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nextSess++
@@ -128,14 +137,23 @@ func (c *Controller) Screenshot(_ context.Context, req browser.ScreenshotRequest
 	if _, err := c.state(req.SessionID); err != nil {
 		return browser.Artifact{}, err
 	}
-	return browser.Artifact{Path: filepath.Join("artifacts", "browser", "fake.png"), MimeType: "image/png", Width: 800, Height: 600}, nil
+	path := req.Path
+	if path == "" {
+		path = filepath.Join("artifacts", "browser", "fake.png")
+	}
+	c.LastScreenshotPath = path
+	return browser.Artifact{Path: path, MimeType: "image/png", Width: 800, Height: 600}, nil
 }
 
 func (c *Controller) PDF(_ context.Context, req browser.PDFRequest) (browser.Artifact, error) {
 	if _, err := c.state(req.SessionID); err != nil {
 		return browser.Artifact{}, err
 	}
-	return browser.Artifact{Path: filepath.Join("artifacts", "browser", "fake.pdf"), MimeType: "application/pdf"}, nil
+	path := req.Path
+	if path == "" {
+		path = filepath.Join("artifacts", "browser", "fake.pdf")
+	}
+	return browser.Artifact{Path: path, MimeType: "application/pdf"}, nil
 }
 
 func (c *Controller) Act(_ context.Context, req browser.ActionRequest) (browser.ActionResult, error) {

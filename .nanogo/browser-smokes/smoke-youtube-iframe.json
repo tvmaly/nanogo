@@ -1,0 +1,12 @@
+{
+  "smoke": "smoke-youtube-iframe",
+  "driver": "agent-browser",
+  "session_id": "browser-youtube-iframe",
+  "final_url": "file:///Users/tmaly/Documents/GitHub/tvmaly/nanogo/workspace/lessons/yoyo_youtube_iframe/index.html",
+  "title": "Beginner Yo-Yo Tricks Video Lesson",
+  "screenshot_path": "/Users/tmaly/Documents/GitHub/tvmaly/nanogo/.nanogo/browser-smokes/smoke-youtube-iframe.png",
+  "console_summary": "not_collected",
+  "network_summary": "not_collected",
+  "cleanup_status": "closed",
+  "created_at": "2026-06-07T04:33:14Z"
+}
