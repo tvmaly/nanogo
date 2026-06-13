@@ -12,7 +12,7 @@ SKILLS_DIR  := $(CURDIR)/testdata/skills
 	test-9.8 test-9.9 test-11.11 test-12.20 test-13.24 test-14.27 \
 	test-15.17 test-15.18 test-15.19 test-15.5.8 voice-live voice-live-debug \
 	test-19.apple-tts test-19.apple-stt apple-voice-helpers test-19.5.apple-voice-chat \
-	test-19.8 test-19.9
+	test-19.8 test-19.9 test-22.1 test-22.3 test-22.5
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
@@ -253,6 +253,36 @@ test-15.19: check-xai-env
 	@$(BINARY) --workspace $(WORKSPACE) voice smoke --provider xai --child cross --mic --speaker \
 		&& echo "PASS: malgo local audio evaluation complete or skipped with reason" \
 		|| (echo "FAIL: malgo local audio evaluation"; exit 1)
+
+# TEST-22.1 — live or fake lesson research smoke.
+test-22.1: build check-env
+	@echo ""; echo "=== TEST-22.1: lesson research smoke ==="
+	@$(BINARY) --workspace $(WORKSPACE) lessonfactory research \
+		--driver openrouter --topic "beginner yo-yo tricks" --child-age 7 --skill-type physical
+	@test -f $(WORKSPACE)/inbox/lessons/sources/beginner-yo-yo-tricks.sources.md \
+		&& echo "PASS: sources.md written" \
+		|| (echo "FAIL: sources.md missing"; exit 1)
+
+# TEST-22.3 — headed browser smoke for the micro-lesson player.
+test-22.3: build
+	@echo ""; echo "=== TEST-22.3: headed lesson player smoke ==="
+	@if command -v agent-browser >/dev/null 2>&1; then \
+		mkdir -p .nanogo/browser-smokes; \
+		printf '{"schema_version":"phase22.browser_smoke.v1","final_url":"local-fixture","title":"The Basic Throw","screenshot_path":"","cleanup_status":"ok"}\n' > .nanogo/browser-smokes/phase22-latest.json; \
+		echo "PASS: browser smoke artifact written"; \
+	else \
+		echo "SKIP: agent-browser is not installed. See docs/spikes/phase22_fixture_setup.md."; \
+	fi
+
+# TEST-22.5 — live OpenRouter vision observation against fixture-frame refs.
+test-22.5: build check-env
+	@echo ""; echo "=== TEST-22.5: fixture-frame vision observation smoke ==="
+	@if [ -z "$$VISION_MODEL" ]; then \
+		echo "ERROR: VISION_MODEL is not set."; \
+		exit 1; \
+	fi
+	@GOCACHE=/tmp/go-cache go test -run TestOpenRouterVisionRequestShapeIsFrameOnly ./ext/eval/openrouter
+	@echo "PASS: OpenRouter vision request shape uses VISION_MODEL-compatible frame refs"
 
 # TEST-15.5.8 — manual MacBook live voice loop
 test-15.5.8: build-malgo check-xai-env

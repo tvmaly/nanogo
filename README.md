@@ -992,3 +992,39 @@ By default, live sessions persist normalized events and transcripts under `memor
 ```bash
 make voice-live-debug
 ```
+
+## Browser Micro-Lessons With Physical Skill Capture
+
+Phase 22 v2 adds the contracts needed for short browser micro-lessons where a child can practice a physical skill, such as a beginner yo-yo throw, and advance from deterministic evidence. For `physical_skill` objectives, a visual physical-performance pass can advance the lesson when that is the only configured evidence. Mixed, deep, and transfer objectives still require their configured reasoning, reflection, transfer, or parent-confirmation evidence.
+
+Parent-facing benefits:
+
+- Rough topics like "beginner yo-yo tricks" can produce curated source notes and a chain of small browser micro-lessons.
+- Physical activities include child-facing safety setup before capture starts.
+- Parent guide output discloses video segment provenance and flags model-inferred segments for verification.
+- Captured clips stay local by default; persisted records use metadata, hashes, tombstones, and privacy-safe references.
+
+Technical usage:
+
+```bash
+go build -o /tmp/nanogo ./cmd/nanogo
+/tmp/nanogo --workspace /tmp/nanogo-workspace lessonfactory research \
+  --driver fake \
+  --topic "beginner yo-yo tricks" \
+  --child-age 7 \
+  --skill-type physical
+```
+
+Manual Phase 22 smoke targets:
+
+```bash
+make test-22.1   # lesson_research sources.md smoke; requires OPENROUTER_API_KEY for openrouter driver
+make test-22.3   # headed player smoke when agent-browser is installed
+VISION_MODEL=openrouter/model-id make test-22.5
+```
+
+`test-22.5` requires both `OPENROUTER_API_KEY` and `VISION_MODEL`. The deterministic local gate remains:
+
+```bash
+make verify-local
+```

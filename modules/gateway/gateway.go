@@ -21,6 +21,8 @@ import (
 	"github.com/tvmaly/nanogo/core/tools"
 	"github.com/tvmaly/nanogo/modules/browser"
 	"github.com/tvmaly/nanogo/modules/help"
+	"github.com/tvmaly/nanogo/modules/lesson"
+	"github.com/tvmaly/nanogo/modules/media"
 	"github.com/tvmaly/nanogo/modules/skills"
 	"github.com/tvmaly/nanogo/modules/transport"
 )
@@ -164,6 +166,9 @@ type Config struct {
 	RealtimeVoice RealtimeVoiceController
 	Help          help.Service
 	Browser       *browser.Service
+	Lesson        *lesson.Service
+	LessonBundles []lesson.Bundle
+	Media         *media.Store
 }
 
 type Service struct {
@@ -187,6 +192,8 @@ func New(cfg Config) *Service {
 	s := &Service{cfg: cfg, registry: NewRegistry(), sessions: map[string]session.Session{}, models: map[string]string{}}
 	s.registerBuiltins()
 	s.registerBrowserOps()
+	s.registerLessonOps()
+	s.registerMediaOps()
 	return s
 }
 

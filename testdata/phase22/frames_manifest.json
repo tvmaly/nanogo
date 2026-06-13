@@ -1,0 +1,17 @@
+{
+  "schema_version": "phase22.frames.v1",
+  "fixtures": [
+    {
+      "id": "throw-pass",
+      "label": "parent_pass",
+      "frames": ["frames/throw-pass-001.txt"],
+      "critical_checks_present": ["full-extension", "string-vertical"]
+    },
+    {
+      "id": "throw-miss",
+      "label": "parent_fail",
+      "frames": ["frames/throw-miss-001.txt"],
+      "critical_checks_present": []
+    }
+  ]
+}

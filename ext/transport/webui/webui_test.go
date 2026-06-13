@@ -67,6 +67,32 @@ func TestStudentLessonRender(t *testing.T) {
 			t.Errorf("lesson render: body missing %q", want)
 		}
 	}
+	if !strings.Contains(body, `href="/student/quiz/quiz-fractions"`) {
+		t.Fatalf("quiz block should be clickable, body: %s", body)
+	}
+}
+
+func TestStudentQuizRouteRendersForm(t *testing.T) {
+	t.Parallel()
+	srv := webui.New(webui.Config{InsecureSkipAuth: true})
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/student/quiz/fractions-quick-check")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	body := string(bodyBytes)
+	for _, want := range []string{"Quiz: fractions-quick-check", "<form>", "Submit"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("quiz route missing %q: %s", want, body)
+		}
+	}
 }
 
 func TestVideoEmbedAllowlist(t *testing.T) {

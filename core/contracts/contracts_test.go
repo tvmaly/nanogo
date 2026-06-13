@@ -21,6 +21,28 @@ func TestFakesImplementContracts(t *testing.T) {
 	var _ contracts.PatternRuntime = (*contractfake.PatternRuntime)(nil)
 	var _ contracts.TraceSink = (*contractfake.TraceSink)(nil)
 	var _ contracts.ApprovalGate = (*contractfake.ApprovalGate)(nil)
+	var _ contracts.ActivityObserver = (*contractfake.ActivityObserver)(nil)
+}
+
+func TestActivityObserverContractIsFrameOnly(t *testing.T) {
+	observer := &contractfake.ActivityObserver{Result: contracts.ActivityObservation{
+		SchemaVersion: "activity.observation.v1",
+		Observer:      "fake",
+		Checks:        []contracts.ObservationCheck{{ID: "full-extension", Present: true, Critical: true}},
+	}}
+	got, err := observer.ObserveActivity(context.Background(), contracts.ActivityObservationRequest{
+		SchemaVersion: "activity.observation_request.v1",
+		ChildID:       "cross",
+		LessonID:      "lesson-yoyo",
+		MicroLessonID: "ml-01-the-throw",
+		FrameRefs:     []contracts.ArtifactRef{{URI: "memory/media/frame-001.jpg", Kind: "frame"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Observer != "fake" || len(observer.Requests) != 1 || len(observer.Requests[0].FrameRefs) != 1 {
+		t.Fatalf("observation = %+v requests = %+v", got, observer.Requests)
+	}
 }
 
 func TestTraceSinkRecordsEvents(t *testing.T) {

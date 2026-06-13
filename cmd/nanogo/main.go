@@ -24,6 +24,7 @@ import (
 	"github.com/tvmaly/nanogo/ext/agentpatterns"
 	"github.com/tvmaly/nanogo/ext/meta"
 	costobs "github.com/tvmaly/nanogo/ext/obs/cost"
+	researchtool "github.com/tvmaly/nanogo/ext/tools/research"
 	"github.com/tvmaly/nanogo/modules/memory"
 	modulesession "github.com/tvmaly/nanogo/modules/session"
 	"github.com/tvmaly/nanogo/modules/skills"
@@ -203,6 +204,25 @@ func runLessonFactoryCmd(args []string, workspace string) error {
 			return err
 		}
 		fmt.Printf("lesson: %s\npath: %s\n", b.ID, filepath.Join(workspace, "lessons", "generated", b.ID))
+		return nil
+	case "research":
+		fs := flag.NewFlagSet("lessonfactory research", flag.ContinueOnError)
+		topic := fs.String("topic", "beginner yo-yo tricks", "research topic")
+		childAge := fs.Int("child-age", 7, "child age")
+		skillType := fs.String("skill-type", "physical", "physical|conceptual|mixed")
+		driver := fs.String("driver", "fake", "fake|openrouter")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *driver == "openrouter" && os.Getenv("OPENROUTER_API_KEY") == "" {
+			return fmt.Errorf("OPENROUTER_API_KEY is required for live research smoke")
+		}
+		src := researchtool.NewSource(researchtool.Config{Workspace: workspace, Enabled: true, Driver: *driver})
+		out, err := src.Research(context.Background(), researchtool.Request{Topic: *topic, ChildAge: *childAge, SkillType: *skillType})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("sources: %s\nguides: %d\nvideos: %d\n", out.SourcesPath, out.Guides, out.Videos)
 		return nil
 	case "review":
 		fs := flag.NewFlagSet("lessonfactory review", flag.ContinueOnError)

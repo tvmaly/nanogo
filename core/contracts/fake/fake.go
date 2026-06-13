@@ -20,6 +20,7 @@ var _ contracts.TraceSink = (*TraceSink)(nil)
 var _ contracts.ApprovalGate = (*ApprovalGate)(nil)
 var _ contracts.SpeechToText = (*SpeechToText)(nil)
 var _ contracts.TextToSpeech = (*TextToSpeech)(nil)
+var _ contracts.ActivityObserver = (*ActivityObserver)(nil)
 
 type AgentRunner struct {
 	Requests []contracts.AgentRequest
@@ -106,6 +107,17 @@ type ApprovalGate struct {
 	Requests []contracts.ApprovalRequest
 	Result   contracts.ApprovalResult
 	Err      error
+}
+
+type ActivityObserver struct {
+	Requests []contracts.ActivityObservationRequest
+	Result   contracts.ActivityObservation
+	Err      error
+}
+
+func (o *ActivityObserver) ObserveActivity(_ context.Context, req contracts.ActivityObservationRequest) (contracts.ActivityObservation, error) {
+	o.Requests = append(o.Requests, req)
+	return o.Result, o.Err
 }
 
 func (g *ApprovalGate) RequestApproval(_ context.Context, req contracts.ApprovalRequest) (contracts.ApprovalResult, error) {

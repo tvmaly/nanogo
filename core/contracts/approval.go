@@ -7,17 +7,13 @@ type ApprovalGate interface {
 }
 
 type ApprovalRequest struct {
-	ID        string
-	SessionID string
-	Reason    string
-	Summary   string
-	Data      map[string]any
-	Metadata  map[string]string
+	ID, SessionID, Reason, Summary string
+	Data                           map[string]any
+	Metadata                       map[string]string
 }
 
 type ApprovalResult struct {
-	Approved bool
-	Rejected bool
-	Comment  string
-	Metadata map[string]string
+	Approved, Rejected bool
+	Comment            string
+	Metadata           map[string]string
 }

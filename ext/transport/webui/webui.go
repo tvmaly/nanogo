@@ -29,9 +29,10 @@ func init() {
 
 // Config holds web UI configuration.
 type Config struct {
-	Addr             string   `json:"addr"`
-	Lessons          []Lesson `json:"lessons,omitempty"`
-	InsecureSkipAuth bool     `json:"insecure_skip_auth,omitempty"`
+	Addr             string        `json:"addr"`
+	Lessons          []Lesson      `json:"lessons,omitempty"`
+	MicroLessons     []MicroLesson `json:"micro_lessons,omitempty"`
+	InsecureSkipAuth bool          `json:"insecure_skip_auth,omitempty"`
 }
 
 // Lesson is a single lesson definition.
@@ -50,6 +51,17 @@ type Block struct {
 	QuizRef   string `json:"quiz_ref,omitempty"`
 	AssetPath string `json:"asset_path,omitempty"`
 	Caption   string `json:"caption,omitempty"`
+}
+
+type MicroLesson struct {
+	ID                string `json:"id"`
+	Title             string `json:"title"`
+	ChildSafetySetup  string `json:"child_safety_setup"`
+	ParentSafetySetup string `json:"parent_safety_setup"`
+	YouTubeVideoID    string `json:"youtube_video_id"`
+	StartSeconds      int    `json:"start_seconds"`
+	EndSeconds        int    `json:"end_seconds"`
+	CaptureLabel      string `json:"capture_label"`
 }
 
 // allowedVideoHosts is the allowlist for remote video embeds.
@@ -88,13 +100,17 @@ type WebUI struct {
 	mux    *http.ServeMux
 	server *http.Server
 	byID   map[string]Lesson
+	micro  map[string]MicroLesson
 }
 
 // New constructs a WebUI server.
 func New(cfg Config) *WebUI {
-	w := &WebUI{cfg: cfg, byID: make(map[string]Lesson)}
+	w := &WebUI{cfg: cfg, byID: make(map[string]Lesson), micro: make(map[string]MicroLesson)}
 	for _, l := range cfg.Lessons {
 		w.byID[l.ID] = l
+	}
+	for _, l := range cfg.MicroLessons {
+		w.micro[l.ID] = l
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", w.handleHealthz)
@@ -102,6 +118,8 @@ func New(cfg Config) *WebUI {
 	mux.HandleFunc("GET /parent", w.handleParentShell)
 	// Lesson page — auth required per role
 	mux.HandleFunc("GET /student/lesson/{id}", w.requireRole("student", w.handleStudentLesson))
+	mux.HandleFunc("GET /student/micro-lesson/{id}", w.requireRole("student", w.handleMicroLesson))
+	mux.HandleFunc("GET /student/quiz/{ref}", w.requireRole("student", w.handleStudentQuiz))
 	// Parent-only routes
 	mux.HandleFunc("GET /parent/dashboard", w.requireRole("parent", w.handleParentDashboard))
 	mux.HandleFunc("GET /parent/reports", w.requireRole("parent", w.handleParentReports))
@@ -164,12 +182,22 @@ var lessonTmpl = template.Must(template.New("lesson").Parse(`<!DOCTYPE html>
 <section id="{{.ID}}" class="block block-{{.Kind}}">
 {{if eq .Kind "prose"}}<div class="prose">{{.Content}}</div>
 {{else if eq .Kind "video"}}<iframe src="{{.VideoURL}}" sandbox="allow-scripts allow-same-origin" loading="lazy" allowfullscreen></iframe>
-{{else if eq .Kind "quiz"}}<div class="quiz" data-ref="{{.QuizRef}}">Quiz: {{.QuizRef}}</div>
+{{else if eq .Kind "quiz"}}<a class="quiz" data-ref="{{.QuizRef}}" href="/student/quiz/{{.QuizRef}}">Quiz: {{.QuizRef}}</a>
 {{else if eq .Kind "interactive"}}<div class="interactive" data-src="{{.AssetPath}}">Interactive: {{.AssetPath}}</div>
 {{else if eq .Kind "manim"}}<div class="manim"><video src="{{.AssetPath}}" controls></video><p>{{.Caption}}</p></div>
 {{end}}
 </section>
 {{end}}
+</body></html>`))
+
+var microLessonTmpl = template.Must(template.New("micro").Parse(`<!DOCTYPE html>
+<html><head><title>{{.Title}}</title></head><body>
+<main data-player="micro-lesson">
+<h1>{{.Title}}</h1>
+<section id="safety"><p>{{.ChildSafetySetup}}</p></section>
+<section id="video"><iframe src="https://www.youtube.com/embed/{{.YouTubeVideoID}}?start={{.StartSeconds}}&end={{.EndSeconds}}" sandbox="allow-scripts allow-same-origin" loading="lazy" allowfullscreen></iframe></section>
+<section id="capture"><button type="button">{{.CaptureLabel}}</button></section>
+</main>
 </body></html>`))
 
 func (w *WebUI) handleStudentShell(rw http.ResponseWriter, r *http.Request) {
@@ -191,6 +219,30 @@ func (w *WebUI) handleStudentLesson(rw http.ResponseWriter, r *http.Request) {
 	}
 	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 	lessonTmpl.Execute(rw, lesson)
+}
+
+func (w *WebUI) handleMicroLesson(rw http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	lesson, ok := w.micro[id]
+	if !ok {
+		http.NotFound(rw, r)
+		return
+	}
+	if lesson.CaptureLabel == "" {
+		lesson.CaptureLabel = "Capture attempt"
+	}
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	microLessonTmpl.Execute(rw, lesson)
+}
+
+func (w *WebUI) handleStudentQuiz(rw http.ResponseWriter, r *http.Request) {
+	ref := r.PathValue("ref")
+	if strings.TrimSpace(ref) == "" || strings.Contains(ref, "/") || strings.Contains(ref, "..") {
+		http.NotFound(rw, r)
+		return
+	}
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(rw, `<!DOCTYPE html><html><head><title>Quiz</title></head><body><main><h1>Quiz: %s</h1><form><label>Answer <input name="answer"></label><button type="submit">Submit</button></form></main></body></html>`, template.HTMLEscapeString(ref))
 }
 
 func (w *WebUI) handleParentDashboard(rw http.ResponseWriter, r *http.Request) {
